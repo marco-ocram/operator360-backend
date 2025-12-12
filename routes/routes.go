@@ -25,6 +25,15 @@ func SetupRoutes(router *gin.Engine) {
 		// KPI data route - fetches data based on user's regional office
 		api.GET("/kpi", handlers.GetKPIData)
 
+		// High risk operators route - fetches parquet file based on user's regional office
+		api.GET("/high_risk_operator", handlers.GetHighRiskOperators)
+
+		// Medium risk operators route
+		api.GET("/med_risk_operator", handlers.GetMediumRiskOperators)
+
+		// Low risk operators route
+		api.GET("/low_risk_operator", handlers.GetLowRiskOperators)
+
 		// Add more protected routes here
 		// api.GET("/data", handlers.GetData)
 	}
