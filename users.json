@@ -1,0 +1,29 @@
+{
+  "users": [
+    {
+      "ad_id": "ayushd.nisg",
+      "name": "Ayush Athawale",
+      "regional_office": "Mumbai"
+    },
+    {
+      "ad_id": "priyanshug.nisg",
+      "name": "Priyanshu Gupta",
+      "regional_office": "Lucknow"
+    },
+    {
+      "ad_id": "user3.nisg",
+      "name": "User Three",
+      "regional_office": "Bengaluru"
+    },
+    {
+      "ad_id": "user4.nisg",
+      "name": "User Four",
+      "regional_office": "Delhi"
+    },
+    {
+      "ad_id": "user5.nisg",
+      "name": "User Five",
+      "regional_office": "Chennai"
+    }
+  ]
+}
