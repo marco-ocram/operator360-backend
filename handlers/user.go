@@ -108,13 +108,6 @@ func GetHighRiskOperators(c *gin.Context) {
 
 	user := userInterface.(*models.User)
 
-	// Get optional query parameters for filtering
-	optID := c.Query("opt_id")           // Search by operator ID
-	optReg := c.Query("opt_reg")         // Filter by region
-	optEa := c.Query("opt_ea")           // Filter by EA
-	optState := c.Query("opt_state")     // Filter by state
-	optDistrict := c.Query("opt_district") // Filter by district
-
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
@@ -207,140 +200,26 @@ func GetHighRiskOperators(c *gin.Context) {
 		return
 	}
 
-	// Convert to JSON-friendly format and apply type assertion
-	data := make([]map[string]interface{}, 0)
-	for _, str := range strs {
-		// The parquet reader returns structs, convert to map
-		rowMap := make(map[string]interface{})
-		
-		// Use reflection to convert struct to map or direct type assertion
-		switch v := str.(type) {
-		case map[string]interface{}:
-			rowMap = v
-		default:
-			// Try JSON marshaling/unmarshaling as fallback
-			jsonBytes, err := json.Marshal(str)
-			if err == nil {
-				json.Unmarshal(jsonBytes, &rowMap)
-			}
-		}
-		
-		if len(rowMap) > 0 {
-			data = append(data, rowMap)
+	// Convert to JSON-friendly format
+	data := make([]interface{}, len(strs))
+	for i, str := range strs {
+		var row map[string]interface{}
+		jsonStr := fmt.Sprintf("%v", str)
+		// Try to parse as JSON
+		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
+			data[i] = row
+		} else {
+			// If not valid JSON, return the raw interface
+			data[i] = str
 		}
 	}
 
-	// Apply filters if query parameters are provided
-	filteredData := make([]map[string]interface{}, 0)
-	for _, rowMap := range data {
-		// Apply filters - only include row if all provided filters match
-		match := true
-
-		// Search by opt_id (case-insensitive partial match)
-		if optID != "" {
-			matched := false
-			for key, val := range rowMap {
-				if strings.EqualFold(key, "Opt_id") || strings.EqualFold(key, "opt_id") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.Contains(strings.ToLower(valStr), strings.ToLower(optID)) {
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				match = false
-			}
-		}
-
-		// Filter by opt_reg (exact match, case-insensitive)
-		if optReg != "" && match {
-			matched := false
-			for key, val := range rowMap {
-				if strings.EqualFold(key, "Opt_reg") || strings.EqualFold(key, "opt_reg") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.EqualFold(valStr, optReg) {
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				match = false
-			}
-		}
-
-		// Filter by opt_ea (exact match, case-insensitive)
-		if optEa != "" && match {
-			matched := false
-			for key, val := range rowMap {
-				if strings.EqualFold(key, "Opt_ea") || strings.EqualFold(key, "opt_ea") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.EqualFold(valStr, optEa) {
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				match = false
-			}
-		}
-
-		// Filter by opt_state (exact match, case-insensitive)
-		if optState != "" && match {
-			matched := false
-			for key, val := range rowMap {
-				if strings.EqualFold(key, "Opt_state") || strings.EqualFold(key, "opt_state") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.EqualFold(valStr, optState) {
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				match = false
-			}
-		}
-
-		// Filter by opt_district (exact match, case-insensitive)
-		if optDistrict != "" && match {
-			matched := false
-			for key, val := range rowMap {
-				if strings.EqualFold(key, "Opt_district") || strings.EqualFold(key, "opt_district") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.EqualFold(valStr, optDistrict) {
-						matched = true
-						break
-					}
-				}
-			}
-			if !matched {
-				match = false
-			}
-		}
-
-		// Add to filtered results if all filters match
-		if match {
-			filteredData = append(filteredData, rowMap)
-		}
-	}
-
-	// Return the filtered data as JSON
+	// Return the data as JSON
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,
-		"total_count":     len(data),
-		"filtered_count":  len(filteredData),
-		"filters": gin.H{
-			"opt_id":       optID,
-			"opt_reg":      optReg,
-			"opt_ea":       optEa,
-			"opt_state":    optState,
-			"opt_district": optDistrict,
-		},
-		"data": filteredData,
+		"count":           len(data),
+		"data":            data,
 	})
 }
 
@@ -743,5 +622,241 @@ func GetOperatorDetails(c *gin.Context) {
 		"data":            data,
 		"requested_by":    user.ADID,
 		"regional_office": user.RegionalOffice,
+	})
+}
+
+// GetOperatorList fetches operator.parquet file with optional filters
+func GetOperatorList(c *gin.Context) {
+	// Get user from context (set by auth middleware)
+	userInterface, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	user := userInterface.(*models.User)
+
+	// Get optional query parameters for filtering
+	optEa := c.Query("opt_ea")             // Filter by EA
+	optReg := c.Query("opt_reg")           // Filter by region
+	optDistrict := c.Query("opt_district") // Filter by district
+	optState := c.Query("opt_state")       // Filter by state
+	optID := c.Query("opt_id")             // Search by operator ID
+
+	// Get S3 configuration
+	s3Cfg := config.GetDefaultS3Config()
+
+	// Build file path based on user's regional office
+	// Format: opt360Store/{RegionalOffice}/operator.parquet
+	fileName := "opt360Store/" + user.RegionalOffice + "/operator.parquet"
+
+	// Create S3 client
+	s3Client, err := config.NewS3Client(s3Cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create S3 client",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Download the parquet file from S3
+	result, err := s3Client.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(s3Cfg.BucketName),
+		Key:    aws.String(fileName),
+	})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":           "Operator list file not found",
+			"regional_office": user.RegionalOffice,
+			"file_path":       fileName,
+			"details":         err.Error(),
+		})
+		return
+	}
+	defer result.Body.Close()
+
+	// Create a temporary file to store the parquet data
+	tempDir := os.TempDir()
+	tempFile := filepath.Join(tempDir, "temp_operator_list.parquet")
+
+	outFile, err := os.Create(tempFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create temp file",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer os.Remove(tempFile)
+	defer outFile.Close()
+
+	// Write S3 content to temp file
+	_, err = io.Copy(outFile, result.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to write parquet data",
+			"details": err.Error(),
+		})
+		return
+	}
+	outFile.Close()
+
+	// Read the parquet file
+	fr, err := local.NewLocalFileReader(tempFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to open parquet file",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer fr.Close()
+
+	pr, err := reader.NewParquetReader(fr, nil, 4)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create parquet reader",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer pr.ReadStop()
+
+	numRows := int(pr.GetNumRows())
+
+	// Read all data at once using ReadByNumber
+	strs, err := pr.ReadByNumber(numRows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read parquet data",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Convert to JSON-friendly format
+	data := make([]map[string]interface{}, 0)
+	for _, str := range strs {
+		rowMap := make(map[string]interface{})
+		jsonBytes, err := json.Marshal(str)
+		if err == nil {
+			json.Unmarshal(jsonBytes, &rowMap)
+		}
+		if len(rowMap) > 0 {
+			data = append(data, rowMap)
+		}
+	}
+
+	// Apply filters if query parameters are provided
+	filteredData := make([]map[string]interface{}, 0)
+	for _, rowMap := range data {
+		match := true
+
+		// Filter by opt_state (exact match, case-insensitive)
+		if optState != "" {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_state") || strings.EqualFold(key, "opt_state") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optState) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Search by opt_id (case-insensitive partial match)
+		if optID != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_id") || strings.EqualFold(key, "opt_id") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.Contains(strings.ToLower(valStr), strings.ToLower(optID)) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_ea (exact match, case-insensitive)
+		if optEa != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_ea") || strings.EqualFold(key, "opt_ea") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optEa) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_reg (exact match, case-insensitive)
+		if optReg != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_reg") || strings.EqualFold(key, "opt_reg") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optReg) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_district (exact match, case-insensitive)
+		if optDistrict != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_district") || strings.EqualFold(key, "opt_district") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optDistrict) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Add to filtered results if all filters match
+		if match {
+			filteredData = append(filteredData, rowMap)
+		}
+	}
+
+	// Return the filtered data as JSON
+	c.JSON(http.StatusOK, gin.H{
+		"regional_office": user.RegionalOffice,
+		"file":            fileName,
+		"total_count":     len(data),
+		"filtered_count":  len(filteredData),
+		"filters": gin.H{
+			"opt_ea":       optEa,
+			"opt_reg":      optReg,
+			"opt_district": optDistrict,
+			"opt_state":    optState,
+			"opt_id":       optID,
+		},
+		"data": filteredData,
 	})
 }
