@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"os"
-	"path/filepath"
 	"strings"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -108,6 +107,26 @@ func GetHighRiskOperators(c *gin.Context) {
 
 	user := userInterface.(*models.User)
 
+	// Get pagination parameters
+	page := 1
+	pageSize := 20 // Default page size
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
+
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
@@ -141,42 +160,47 @@ func GetHighRiskOperators(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Create a temporary file to store the parquet data
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, "temp_operator_high.parquet")
-
-	outFile, err := os.Create(tempFile)
+	// Stream parquet data directly from S3 into memory
+	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temp file",
+			"error":   "Failed to read S3 data",
 			"details": err.Error(),
 		})
 		return
 	}
-	defer os.Remove(tempFile) // Clean up temp file
-	defer outFile.Close()
 
-	// Write S3 content to temp file
-	_, err = io.Copy(outFile, result.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data",
-			"details": err.Error(),
-		})
-		return
-	}
-	outFile.Close() // Close before reading
+		// Write parquetBytes to a temp file
+		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		_, err = tempFile.Write(parquetBytes)
+		if err != nil {
+			tempFile.Close()
+			os.Remove(tempFile.Name())
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to write to temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		tempFile.Close()
+		defer os.Remove(tempFile.Name())
 
-	// Read the parquet file
-	fr, err := local.NewLocalFileReader(tempFile)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer fr.Close()
+		fr, err := local.NewLocalFileReader(tempFile.Name())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open parquet file",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
@@ -201,25 +225,59 @@ func GetHighRiskOperators(c *gin.Context) {
 	}
 
 	// Convert to JSON-friendly format
-	data := make([]interface{}, len(strs))
-	for i, str := range strs {
+	allData := make([]interface{}, 0, len(strs))
+	for _, str := range strs {
 		var row map[string]interface{}
 		jsonStr := fmt.Sprintf("%v", str)
 		// Try to parse as JSON
 		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
-			data[i] = row
+			allData = append(allData, row)
 		} else {
 			// If not valid JSON, return the raw interface
-			data[i] = str
+			allData = append(allData, str)
 		}
 	}
 
-	// Return the data as JSON
+	// Calculate pagination
+	totalRecords := len(allData)
+	totalPages := (totalRecords + pageSize - 1) / pageSize
+	
+	// Validate page number
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	// Calculate start and end indices
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalRecords {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalRecords {
+		endIndex = totalRecords
+	}
+	
+	// Get paginated data
+	paginatedData := []interface{}{}
+	if startIndex < endIndex {
+		paginatedData = allData[startIndex:endIndex]
+	}
+
+	// Return the data as JSON with pagination info
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,
-		"count":           len(data),
-		"data":            data,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalRecords,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
+		"count": len(paginatedData),
+		"data":  paginatedData,
 	})
 }
 
@@ -233,6 +291,26 @@ func GetMediumRiskOperators(c *gin.Context) {
 	}
 
 	user := userInterface.(*models.User)
+
+	// Get pagination parameters
+	page := 1
+	pageSize := 50
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
 
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
@@ -267,42 +345,48 @@ func GetMediumRiskOperators(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Create a temporary file to store the parquet data
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, "temp_operator_medium.parquet")
-
-	outFile, err := os.Create(tempFile)
+	// Stream parquet data directly from S3 into memory
+	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temp file",
+			"error":   "Failed to read S3 data",
 			"details": err.Error(),
 		})
 		return
 	}
-	defer os.Remove(tempFile)
-	defer outFile.Close()
 
-	// Write S3 content to temp file
-	_, err = io.Copy(outFile, result.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data",
-			"details": err.Error(),
-		})
-		return
-	}
-	outFile.Close()
+	// Create in-memory parquet reader
+		// Write parquetBytes to a temp file
+		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		_, err = tempFile.Write(parquetBytes)
+		if err != nil {
+			tempFile.Close()
+			os.Remove(tempFile.Name())
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to write to temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		tempFile.Close()
+		defer os.Remove(tempFile.Name())
 
-	// Read the parquet file
-	fr, err := local.NewLocalFileReader(tempFile)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer fr.Close()
+		fr, err := local.NewLocalFileReader(tempFile.Name())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open parquet file",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
@@ -327,23 +411,54 @@ func GetMediumRiskOperators(c *gin.Context) {
 	}
 
 	// Convert to JSON-friendly format
-	data := make([]interface{}, len(strs))
-	for i, str := range strs {
+	allData := make([]interface{}, 0, len(strs))
+	for _, str := range strs {
 		var row map[string]interface{}
 		jsonStr := fmt.Sprintf("%v", str)
 		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
-			data[i] = row
+			allData = append(allData, row)
 		} else {
-			data[i] = str
+			allData = append(allData, str)
 		}
 	}
 
-	// Return the data as JSON
+	// Calculate pagination
+	totalRecords := len(allData)
+	totalPages := (totalRecords + pageSize - 1) / pageSize
+	
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalRecords {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalRecords {
+		endIndex = totalRecords
+	}
+	
+	paginatedData := []interface{}{}
+	if startIndex < endIndex {
+		paginatedData = allData[startIndex:endIndex]
+	}
+
+	// Return the data as JSON with pagination
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,
-		"count":           len(data),
-		"data":            data,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalRecords,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
+		"count": len(paginatedData),
+		"data":  paginatedData,
 	})
 }
 
@@ -357,6 +472,26 @@ func GetLowRiskOperators(c *gin.Context) {
 	}
 
 	user := userInterface.(*models.User)
+
+	// Get pagination parameters
+	page := 1
+	pageSize := 50
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
 
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
@@ -391,42 +526,48 @@ func GetLowRiskOperators(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Create a temporary file to store the parquet data
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, "temp_low_operators.parquet")
-
-	outFile, err := os.Create(tempFile)
+	// Stream parquet data directly from S3 into memory
+	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temp file",
+			"error":   "Failed to read S3 data",
 			"details": err.Error(),
 		})
 		return
 	}
-	defer os.Remove(tempFile)
-	defer outFile.Close()
 
-	// Write S3 content to temp file
-	_, err = io.Copy(outFile, result.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data",
-			"details": err.Error(),
-		})
-		return
-	}
-	outFile.Close()
+	// Create in-memory parquet reader
+		// Write parquetBytes to a temp file
+		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to create temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		_, err = tempFile.Write(parquetBytes)
+		if err != nil {
+			tempFile.Close()
+			os.Remove(tempFile.Name())
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to write to temp file",
+				"details": err.Error(),
+			})
+			return
+		}
+		tempFile.Close()
+		defer os.Remove(tempFile.Name())
 
-	// Read the parquet file
-	fr, err := local.NewLocalFileReader(tempFile)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer fr.Close()
+		fr, err := local.NewLocalFileReader(tempFile.Name())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to open parquet file",
+				"details": err.Error(),
+			})
+			return
+		}
+		defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
@@ -451,43 +592,60 @@ func GetLowRiskOperators(c *gin.Context) {
 	}
 
 	// Convert to JSON-friendly format
-	data := make([]interface{}, len(strs))
-	for i, str := range strs {
+	allData := make([]interface{}, 0, len(strs))
+	for _, str := range strs {
 		var row map[string]interface{}
 		jsonStr := fmt.Sprintf("%v", str)
 		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
-			data[i] = row
+			allData = append(allData, row)
 		} else {
-			data[i] = str
+			allData = append(allData, str)
 		}
 	}
 
-	// Return the data as JSON
+	// Calculate pagination
+	totalRecords := len(allData)
+	totalPages := (totalRecords + pageSize - 1) / pageSize
+	
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalRecords {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalRecords {
+		endIndex = totalRecords
+	}
+	
+	paginatedData := []interface{}{}
+	if startIndex < endIndex {
+		paginatedData = allData[startIndex:endIndex]
+	}
+
+	// Return the data as JSON with pagination
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,
-		"count":           len(data),
-		"data":            data,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalRecords,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
+		"count": len(paginatedData),
+		"data":  paginatedData,
 	})
 }
 
-// GetOperatorDetails fetches opt_details.parquet file for a specific operator
+// GetOperatorDetails searches operator.parquet file with filters
 func GetOperatorDetails(c *gin.Context) {
-	// Parse query parameters
-	operatorID := c.Query("operator_id")
-	state := c.Query("state")
-	district := c.Query("district")
-	city := c.Query("city")
-
-	// Validate required parameters
-	if operatorID == "" || state == "" || district == "" || city == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Missing required query parameters: operator_id, state, district, city",
-		})
-		return
-	}
-
-	// Get user from context (optional - for logging/validation)
+	// Get user from context
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
@@ -496,13 +654,37 @@ func GetOperatorDetails(c *gin.Context) {
 
 	user := userInterface.(*models.User)
 
-	// Validate that the city in the query parameter matches the user's regional office
-	if user.RegionalOffice != city {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error":           "Access denied",
-			"message":         "You can only access operator details for your regional office",
-			"your_office":     user.RegionalOffice,
-			"requested_city":  city,
+	// Get pagination parameters
+	page := 1
+	pageSize := 50
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
+
+	// Get optional query parameters for filtering (same as GetOperatorList)
+	optEa := c.Query("opt_ea")             // Filter by EA
+	optReg := c.Query("opt_reg")           // Filter by region
+	optDistrict := c.Query("opt_district") // Filter by district
+	optState := c.Query("opt_state")       // Filter by state
+	optID := c.Query("opt_id")             // Search by operator ID (required)
+
+	// Validate that at least opt_id is provided
+	if optID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "opt_id query parameter is required",
 		})
 		return
 	}
@@ -510,9 +692,9 @@ func GetOperatorDetails(c *gin.Context) {
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
-	// Build file path: opt360Store/{City}/{State}/{District}/{OperatorID}/opt_details.parquet
-	fileName := fmt.Sprintf("opt360Store/%s/%s/%s/%s/opt_details.parquet",
-		city, state, district, operatorID)
+	// Build file path based on user's regional office
+	// Format: opt360Store/{RegionalOffice}/operator.parquet
+	fileName := "opt360Store/" + user.RegionalOffice + "/operator.parquet"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
@@ -531,20 +713,27 @@ func GetOperatorDetails(c *gin.Context) {
 	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":       "Operator details file not found",
-			"operator_id": operatorID,
-			"file_path":   fileName,
-			"details":     err.Error(),
+			"error":           "Operator file not found",
+			"regional_office": user.RegionalOffice,
+			"file_path":       fileName,
+			"details":         err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Create a temporary file to store the parquet data
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, fmt.Sprintf("temp_opt_details_%s.parquet", operatorID))
+	// Stream parquet data directly from S3 into memory
+	parquetBytes, err := io.ReadAll(result.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read S3 data",
+			"details": err.Error(),
+		})
+		return
+	}
 
-	outFile, err := os.Create(tempFile)
+	// Write parquetBytes to a temp file
+	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create temp file",
@@ -552,22 +741,20 @@ func GetOperatorDetails(c *gin.Context) {
 		})
 		return
 	}
-	defer os.Remove(tempFile)
-	defer outFile.Close()
-
-	// Write S3 content to temp file
-	_, err = io.Copy(outFile, result.Body)
+	_, err = tempFile.Write(parquetBytes)
 	if err != nil {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data",
+			"error":   "Failed to write to temp file",
 			"details": err.Error(),
 		})
 		return
 	}
-	outFile.Close()
+	tempFile.Close()
+	defer os.Remove(tempFile.Name())
 
-	// Read the parquet file
-	fr, err := local.NewLocalFileReader(tempFile)
+	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to open parquet file",
@@ -599,29 +786,162 @@ func GetOperatorDetails(c *gin.Context) {
 		return
 	}
 
-	// Convert to JSON-friendly format
-	data := make([]interface{}, len(strs))
-	for i, str := range strs {
-		var row map[string]interface{}
-		jsonStr := fmt.Sprintf("%v", str)
-		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
-			data[i] = row
-		} else {
-			data[i] = str
+	// Convert and filter in single pass to minimize memory usage
+	totalCount := 0
+	filteredData := make([]map[string]interface{}, 0)
+	
+	for _, str := range strs {
+		totalCount++
+		
+		// Convert to map
+		rowMap := make(map[string]interface{})
+		jsonBytes, err := json.Marshal(str)
+		if err != nil || len(rowMap) == 0 {
+			continue
 		}
+		json.Unmarshal(jsonBytes, &rowMap)
+		
+		match := true
+
+		// Search by opt_id (case-insensitive partial match) - REQUIRED
+		if optID != "" {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_id") || strings.EqualFold(key, "opt_id") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.Contains(strings.ToLower(valStr), strings.ToLower(optID)) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_state (exact match, case-insensitive)
+		if optState != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_state") || strings.EqualFold(key, "opt_state") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optState) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_ea (exact match, case-insensitive)
+		if optEa != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_ea") || strings.EqualFold(key, "opt_ea") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optEa) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_reg (exact match, case-insensitive)
+		if optReg != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_reg") || strings.EqualFold(key, "opt_reg") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optReg) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Filter by opt_district (exact match, case-insensitive)
+		if optDistrict != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_district") || strings.EqualFold(key, "opt_district") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.EqualFold(valStr, optDistrict) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
+		// Only keep matching rows in memory
+		if match {
+			filteredData = append(filteredData, rowMap)
+		}
+		// Non-matching rows are immediately discarded, not stored
 	}
 
-	// Return the data as JSON
+	// Calculate pagination on filtered data
+	totalFiltered := len(filteredData)
+	totalPages := (totalFiltered + pageSize - 1) / pageSize
+	
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalFiltered {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalFiltered {
+		endIndex = totalFiltered
+	}
+	
+	paginatedData := []map[string]interface{}{}
+	if startIndex < endIndex {
+		paginatedData = filteredData[startIndex:endIndex]
+	}
+
+	// Return the filtered data as JSON with pagination
 	c.JSON(http.StatusOK, gin.H{
-		"operator_id":     operatorID,
-		"state":           state,
-		"district":        district,
-		"city":            city,
-		"file":            fileName,
-		"count":           len(data),
-		"data":            data,
-		"requested_by":    user.ADID,
 		"regional_office": user.RegionalOffice,
+		"file":            fileName,
+		"total_count":     totalCount,
+		"filtered_count":  totalFiltered,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalFiltered,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
+		"filters": gin.H{
+			"opt_id":       optID,
+			"opt_ea":       optEa,
+			"opt_reg":      optReg,
+			"opt_district": optDistrict,
+			"opt_state":    optState,
+		},
+		"count":        len(paginatedData),
+		"data":         paginatedData,
+		"requested_by": user.ADID,
 	})
 }
 
@@ -635,6 +955,26 @@ func GetOperatorList(c *gin.Context) {
 	}
 
 	user := userInterface.(*models.User)
+
+	// Get pagination parameters
+	page := 1
+	pageSize := 50
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
 
 	// Get optional query parameters for filtering
 	optEa := c.Query("opt_ea")             // Filter by EA
@@ -676,11 +1016,18 @@ func GetOperatorList(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Create a temporary file to store the parquet data
-	tempDir := os.TempDir()
-	tempFile := filepath.Join(tempDir, "temp_operator_list.parquet")
+	// Stream parquet data directly from S3 into memory
+	parquetBytes, err := io.ReadAll(result.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read S3 data",
+			"details": err.Error(),
+		})
+		return
+	}
 
-	outFile, err := os.Create(tempFile)
+	// Write parquetBytes to a temp file
+	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create temp file",
@@ -688,22 +1035,20 @@ func GetOperatorList(c *gin.Context) {
 		})
 		return
 	}
-	defer os.Remove(tempFile)
-	defer outFile.Close()
-
-	// Write S3 content to temp file
-	_, err = io.Copy(outFile, result.Body)
+	_, err = tempFile.Write(parquetBytes)
 	if err != nil {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data",
+			"error":   "Failed to write to temp file",
 			"details": err.Error(),
 		})
 		return
 	}
-	outFile.Close()
+	tempFile.Close()
+	defer os.Remove(tempFile.Name())
 
-	// Read the parquet file
-	fr, err := local.NewLocalFileReader(tempFile)
+	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to open parquet file",
@@ -735,22 +1080,24 @@ func GetOperatorList(c *gin.Context) {
 		return
 	}
 
-	// Convert to JSON-friendly format
-	data := make([]map[string]interface{}, 0)
+	// Convert and filter in single pass to minimize memory usage
+	totalCount := 0
+	filteredData := make([]map[string]interface{}, 0)
+	
 	for _, str := range strs {
+		totalCount++
+		
+		// Convert to map
 		rowMap := make(map[string]interface{})
 		jsonBytes, err := json.Marshal(str)
-		if err == nil {
-			json.Unmarshal(jsonBytes, &rowMap)
+		if err != nil {
+			continue
 		}
-		if len(rowMap) > 0 {
-			data = append(data, rowMap)
+		json.Unmarshal(jsonBytes, &rowMap)
+		if len(rowMap) == 0 {
+			continue
 		}
-	}
-
-	// Apply filters if query parameters are provided
-	filteredData := make([]map[string]interface{}, 0)
-	for _, rowMap := range data {
+		
 		match := true
 
 		// Filter by opt_state (exact match, case-insensitive)
@@ -844,12 +1191,43 @@ func GetOperatorList(c *gin.Context) {
 		}
 	}
 
-	// Return the filtered data as JSON
+	// Calculate pagination on filtered data
+	totalFiltered := len(filteredData)
+	totalPages := (totalFiltered + pageSize - 1) / pageSize
+	
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalFiltered {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalFiltered {
+		endIndex = totalFiltered
+	}
+	
+	paginatedData := []map[string]interface{}{}
+	if startIndex < endIndex {
+		paginatedData = filteredData[startIndex:endIndex]
+	}
+
+	// Return the filtered data as JSON with pagination
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,
-		"total_count":     len(data),
-		"filtered_count":  len(filteredData),
+		"total_count":     totalCount,
+		"filtered_count":  totalFiltered,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalFiltered,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
 		"filters": gin.H{
 			"opt_ea":       optEa,
 			"opt_reg":      optReg,
@@ -857,6 +1235,342 @@ func GetOperatorList(c *gin.Context) {
 			"opt_state":    optState,
 			"opt_id":       optID,
 		},
-		"data": filteredData,
+		"count": len(paginatedData),
+		"data":  paginatedData,
+	})
+}
+
+// GetROQRiskDistribution fetches kpi.json file from S3
+func GetROQRiskDistribution(c *gin.Context) {
+	// Get user from context (set by auth middleware)
+	userInterface, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	user := userInterface.(*models.User)
+
+	// Get S3 configuration
+	s3Cfg := config.GetDefaultS3Config()
+
+	// Build file path
+	// Format: opt360Store/kpi.json
+	fileName := "opt360Store/kpi.json"
+
+	// Create S3 client
+	s3Client, err := config.NewS3Client(s3Cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create S3 client",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Get the object from S3
+	result, err := s3Client.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(s3Cfg.BucketName),
+		Key:    aws.String(fileName),
+	})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":     "RO risk distribution file not found",
+			"file_path": fileName,
+			"details":   err.Error(),
+		})
+		return
+	}
+	defer result.Body.Close()
+
+	// Read the file content
+	body, err := io.ReadAll(result.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read file content",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Parse JSON to validate it's valid JSON
+	var jsonData interface{}
+	if err := json.Unmarshal(body, &jsonData); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Invalid JSON in file",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Return the JSON content with user info
+	c.JSON(http.StatusOK, gin.H{
+		"file":            fileName,
+		"requested_by":    user.ADID,
+		"regional_office": user.RegionalOffice,
+		"data":            jsonData,
+	})
+}
+
+// GetOperatorPackets fetches all sid_*.parquet files for an operator
+func GetOperatorPackets(c *gin.Context) {
+	// Get user from context
+	userInterface, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
+	}
+
+	user := userInterface.(*models.User)
+
+	// Get pagination parameters
+	page := 1
+	pageSize := 50
+	
+	if pageParam := c.Query("page"); pageParam != "" {
+		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
+			// page is valid
+		} else {
+			page = 1
+		}
+	}
+	
+	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
+		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
+			// pageSize is valid
+		} else {
+			pageSize = 50
+		}
+	}
+
+	// Get required query parameters
+	optState := c.Query("opt_state")       // e.g., "Gujarat"
+	optDistrict := c.Query("opt_district") // e.g., "Vadodara"
+	optID := c.Query("opt_id")             // e.g., "GJ_DOP_VDR_NS764416"
+
+	// Validate required parameters
+	if optState == "" || optDistrict == "" || optID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "opt_state, opt_district, and opt_id query parameters are required",
+		})
+		return
+	}
+
+	// Get S3 configuration
+	s3Cfg := config.GetDefaultS3Config()
+
+	// Create S3 client
+	s3Client, err := config.NewS3Client(s3Cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create S3 client",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Build folder path
+	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/
+	folderPath := "opt360Store/" + user.RegionalOffice + "/" + optState + "/" + optDistrict + "/" + optID + "/"
+
+	// List all objects in the folder
+	listResult, err := s3Client.ListObjectsV2(&s3.ListObjectsV2Input{
+		Bucket: aws.String(s3Cfg.BucketName),
+		Prefix: aws.String(folderPath),
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to list S3 objects",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Filter for sid_*.parquet files
+	var parquetFiles []string
+	for _, obj := range listResult.Contents {
+		fileName := *obj.Key
+		// Extract just the filename from the full path
+		parts := strings.Split(fileName, "/")
+		baseName := parts[len(parts)-1]
+		
+		// Check if it matches sid_*.parquet pattern
+		if strings.HasPrefix(baseName, "sid_") && strings.HasSuffix(baseName, ".parquet") {
+			parquetFiles = append(parquetFiles, fileName)
+		}
+	}
+
+	// If no parquet files found
+	if len(parquetFiles) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":           "No packet files found for the operator",
+			"regional_office": user.RegionalOffice,
+			"operator_id":     optID,
+			"state":           optState,
+			"district":        optDistrict,
+			"folder_path":     folderPath,
+		})
+		return
+	}
+
+	// Helper function to read a single parquet file from S3
+	readParquetFile := func(fileName string) ([]map[string]interface{}, error) {
+		// Download the parquet file from S3
+		result, err := s3Client.GetObject(&s3.GetObjectInput{
+			Bucket: aws.String(s3Cfg.BucketName),
+			Key:    aws.String(fileName),
+		})
+		if err != nil {
+			return nil, err
+		}
+		defer result.Body.Close()
+
+		// Stream parquet data from S3
+		parquetBytes, err := io.ReadAll(result.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read S3 data: %w", err)
+		}
+
+		// Write to temp file
+		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create temp file: %w", err)
+		}
+		_, err = tempFile.Write(parquetBytes)
+		if err != nil {
+			tempFile.Close()
+			os.Remove(tempFile.Name())
+			return nil, fmt.Errorf("failed to write to temp file: %w", err)
+		}
+		tempFile.Close()
+		defer os.Remove(tempFile.Name())
+
+		fr, err := local.NewLocalFileReader(tempFile.Name())
+		if err != nil {
+			return nil, fmt.Errorf("failed to open parquet file: %w", err)
+		}
+		defer fr.Close()
+
+		pr, err := reader.NewParquetReader(fr, nil, 4)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create parquet reader: %w", err)
+		}
+		defer pr.ReadStop()
+
+		numRows := int(pr.GetNumRows())
+
+		// Read all data
+		strs, err := pr.ReadByNumber(numRows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read parquet data: %w", err)
+		}
+
+		// Convert to map format
+		data := make([]map[string]interface{}, 0)
+		for _, str := range strs {
+			rowMap := make(map[string]interface{})
+			jsonBytes, err := json.Marshal(str)
+			if err != nil {
+				continue
+			}
+			json.Unmarshal(jsonBytes, &rowMap)
+			if len(rowMap) == 0 {
+				continue
+			}
+			data = append(data, rowMap)
+		}
+
+		return data, nil
+	}
+
+	// Read all parquet files and combine data
+	combinedData := make([]map[string]interface{}, 0)
+	filesProcessed := make([]gin.H, 0)
+	totalRecords := 0
+
+	for _, filePath := range parquetFiles {
+		data, err := readParquetFile(filePath)
+		
+		// Extract filename and packet type from path
+		parts := strings.Split(filePath, "/")
+		fileName := parts[len(parts)-1]
+		
+		// Extract packet type from filename (U or N at the end before .parquet)
+		packetType := "unknown"
+		if strings.Contains(fileName, "_U.parquet") {
+			packetType = "update"
+		} else if strings.Contains(fileName, "_N.parquet") {
+			packetType = "new_enrollment"
+		}
+
+		fileInfo := gin.H{
+			"file_name":    fileName,
+			"file_path":    filePath,
+			"packet_type":  packetType,
+			"record_count": 0,
+			"status":       "failed",
+		}
+
+		if err != nil {
+			fileInfo["error"] = err.Error()
+		} else {
+			fileInfo["record_count"] = len(data)
+			fileInfo["status"] = "success"
+			totalRecords += len(data)
+
+			// Add metadata to each row
+			for _, row := range data {
+				row["source_file"] = fileName
+				row["packet_type"] = packetType
+				combinedData = append(combinedData, row)
+			}
+		}
+
+		filesProcessed = append(filesProcessed, fileInfo)
+	}
+
+	// Calculate pagination
+	totalPages := (totalRecords + pageSize - 1) / pageSize
+	
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+	
+	startIndex := (page - 1) * pageSize
+	endIndex := startIndex + pageSize
+	
+	if startIndex >= totalRecords {
+		startIndex = 0
+		endIndex = 0
+	} else if endIndex > totalRecords {
+		endIndex = totalRecords
+	}
+	
+	paginatedData := []map[string]interface{}{}
+	if startIndex < endIndex {
+		paginatedData = combinedData[startIndex:endIndex]
+	}
+
+	// Return combined data with pagination
+	c.JSON(http.StatusOK, gin.H{
+		"regional_office":   user.RegionalOffice,
+		"operator_id":       optID,
+		"state":             optState,
+		"district":          optDistrict,
+		"folder_path":       folderPath,
+		"files_found":       len(parquetFiles),
+		"files_processed":   filesProcessed,
+		"total_records":     totalRecords,
+		"pagination": gin.H{
+			"page":          page,
+			"page_size":     pageSize,
+			"total_records": totalRecords,
+			"total_pages":   totalPages,
+			"has_next":      page < totalPages,
+			"has_previous":  page > 1,
+		},
+		"count":             len(paginatedData),
+		"data":              paginatedData,
+		"requested_by":      user.ADID,
 	})
 }

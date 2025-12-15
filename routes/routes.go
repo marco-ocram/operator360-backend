@@ -22,11 +22,13 @@ func SetupRoutes(router *gin.Engine) {
 
 	
 		api.GET("/kpi", handlers.GetKPIData)
+		api.GET("/ro_risk_distribution", handlers.GetROQRiskDistribution)
 		api.GET("/operator_list", handlers.GetOperatorList)
 		api.GET("/high_risk_operator", handlers.GetHighRiskOperators)
 		api.GET("/med_risk_operator", handlers.GetMediumRiskOperators)
         api.GET("/low_risk_operator", handlers.GetLowRiskOperators)
 		api.GET("/operator_details", handlers.GetOperatorDetails)
+		api.GET("/operator_packets", handlers.GetOperatorPackets)
 
 		
 	}
