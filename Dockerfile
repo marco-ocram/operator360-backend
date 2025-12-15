@@ -18,7 +18,7 @@ WORKDIR /
 COPY ./.netrc /root/.netrc
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o enu-tat-priority-update ./cmd/sla-service
+RUN CGO_ENABLED=0 GOOS=linux go build -o operator360-portal-backend ./cmd/operator360-portal-backend
 
 FROM harbor-registry-non-prod.uidai.gov.in/devops/golang:1.24.7-ubuntu_jammy-gcc-git
 
@@ -27,6 +27,6 @@ RUN useradd -ms /bin/bash uidapp
 USER uidapp
 WORKDIR /home/uidapp
 
-COPY --from=build /enu-tat-priority-update .
+COPY --from=build /operator360-portal-backend .
 EXPOSE 8888
-CMD ["/home/uidapp/enu-tat-priority-update"]
+CMD ["/home/uidapp/operator360-portal-backend"]
