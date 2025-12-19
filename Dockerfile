@@ -28,5 +28,5 @@ WORKDIR /home/uidapp
 COPY --from=build /operator360-portal-backend .
 COPY --from=build /SCA-bom.json .
 
-EXPOSE 8888
+EXPOSE 8080
 CMD ["/home/uidapp/operator360-portal-backend"]
