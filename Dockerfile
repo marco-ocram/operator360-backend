@@ -29,4 +29,4 @@ COPY --from=build /operator360-portal-backend .
 COPY --from=build /SCA-bom.json .
 
 EXPOSE 8888
-CMD ["/home/uidapp/uidapp/operator360-portal-backend"]
+CMD ["/home/uidapp/operator360-portal-backend"]
