@@ -1,9 +1,3 @@
-#FROM harbor-registry-non-prod.uidai.gov.in/devops/golang:1.23.3-ubuntu22-gcc-git-0205
-#WORKDIR /
-#COPY data_gov_app /data_gov_app
-#EXPOSE 8080
-#CMD ["./data_gov_app"]
-
 FROM harbor-registry-non-prod.uidai.gov.in/devops/golang:1.24.7-ubuntu-build AS build
 
 # Set module mode + proxy rules
@@ -29,4 +23,4 @@ WORKDIR /home/uidapp
 
 COPY --from=build /operator360-portal-backend .
 EXPOSE 8888
-CMD ["/home/uidapp/operator360-portal-backend"]
+CMD ["/home/uidapp/uidapp/operator360-portal-backend"]
