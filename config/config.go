@@ -58,7 +58,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("s3 'bucket_name' must be set in config file")
 	}
 	if cfg.Server.Port == 0 {
-		cfg.Server.Port = 8080 // Default port
+		cfg.Server.Port = 8080 
 	}
 
 	return &cfg, nil
@@ -76,15 +76,9 @@ func LoadConfig() (*Config, error) {
 // GetDefaultS3Config returns the S3 configuration from config.json
 func GetDefaultS3Config() S3Config {
 	cfg, err := LoadConfig()
-	if err != nil {
-		// Fallback to hardcoded values if config file can't be loaded
-		return S3Config{
-			BucketName: "prd-dsw-bronze-0",
-			AccessKey:  "Z3GDXXKL70ZU5LEU60EC",
-			SecretKey:  "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
-			Endpoint:   "http://10.10.103.14:423",
-			Region:     "us-east-1",
-		}
+    if err != nil {
+		fmt.Println("Error loading config:", err)
+		return S3Config{}
 	}
 
 	return cfg.S3
@@ -105,7 +99,4 @@ func NewS3Client(cfg S3Config) (*s3.S3, error) {
 	return s3.New(sess), nil
 }
 
-// NewS3ClientFromConfig creates a new S3 client using Config loaded from Load() function
-func NewS3ClientFromConfig(cfg *Config) (*s3.S3, error) {
-	return NewS3Client(cfg.S3)
-}
+
