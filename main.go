@@ -23,8 +23,8 @@ func main() {
 	routes.SetupRoutes(router)
 
 	// Start server
-	fmt.Println("Server starting on http://10.10.79.27:31151")
-	router.Run("10.10.79.27:31151")
+	fmt.Println("Server starting on http://0.0.0.0:31151")
+	router.Run("0.0.0.0:31151")
 }
 
 
