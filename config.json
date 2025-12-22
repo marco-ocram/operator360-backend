@@ -1,6 +1,14 @@
 {
-    "server": {
-        "host": "localhost",
-        "port": 8080
-    }
+  "server": {
+    "host":"localhost",
+    "port": "8080"
+  },
+  "s3": {
+    "access_key": "Z3GDXXKL70ZU5LEU60EC",
+    "secret_key": "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
+    "region": "us-east-1",
+    "endpoint_url": "http://10.10.103.14:423",
+    "test_bucket": "prd-dsw-bronze-0"
+  }
+  }
 }
