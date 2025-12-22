@@ -10,9 +10,13 @@ ENV GO111MODULE=on \
 WORKDIR /
 
 COPY ./.netrc /root/.netrc
+COPY ./cyclonedx-gomod /usr/local/bin/cyclonedx-gomod
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o operator360-portal-backend ./cmd/operator360-portal-backend
+RUN CGO_ENABLED=0 GOOS=linux go build -o operator360-portal-backend .
+
+RUN chmod +x /usr/local/bin/cyclonedx-gomod
+RUN cyclonedx-gomod app -json -output /SCA-bom.json -main .
 
 FROM harbor-registry-non-prod.uidai.gov.in/devops/golang:1.24.7-ubuntu_jammy-gcc-git
 
@@ -22,5 +26,7 @@ USER uidapp
 WORKDIR /home/uidapp
 
 COPY --from=build /operator360-portal-backend .
-EXPOSE 8888
-CMD ["/home/uidapp/uidapp/operator360-portal-backend"]
+COPY --from=build /SCA-bom.json .
+
+EXPOSE 8080
+CMD ["/home/uidapp/operator360-portal-backend"]
