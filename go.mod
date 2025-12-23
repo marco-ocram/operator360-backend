@@ -5,6 +5,7 @@ go 1.21.1
 require (
 	github.com/aws/aws-sdk-go v1.44.327
 	github.com/gin-gonic/gin v1.9.1
+	github.com/golang-jwt/jwt/v5 v5.2.0
 )
 
 require (

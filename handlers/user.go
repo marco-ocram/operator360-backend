@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"strconv"
 	"strings"
 	"os"
 	"time"
@@ -84,18 +85,17 @@ func GetKPIData(c *gin.Context) {
 		return
 	}
 
-	// Parse JSON to validate it's valid JSON
-	var jsonData interface{}
-	if err := json.Unmarshal(body, &jsonData); err != nil {
+	var kpiData models.KPIResponse
+	if err := json.Unmarshal(body, &kpiData); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Invalid JSON in file",
-			"details": err.Error(),
+			"details":  err.Error(),
 		})
 		return
 	}
 
-	// Return the JSON content
-	c.JSON(http.StatusOK, jsonData)
+	// Return the strongly-typed KPI data
+	c.JSON(http.StatusOK, kpiData)
 }
 
 // GetHighRiskOperators fetches operator_high.parquet file based on user's regional office
@@ -103,29 +103,29 @@ func GetHighRiskOperators(c *gin.Context) {
 	// Get user from context (set by auth middleware)
 	userInterface, exists := c.Get("user")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error":  "User not found in context"})
 		return
 	}
 
-	user := userInterface.(*models.User)
+	user := userInterface.(*models. User)
 
 	// Get pagination parameters
 	page := 1
 	pageSize := 20 // Default page size
 	
 	if pageParam := c.Query("page"); pageParam != "" {
-		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
-			// page is valid
+		if p, err := strconv.Atoi(pageParam); err == nil && p > 0 {
+			page = p
 		} else {
 			page = 1
 		}
 	}
 	
 	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
-		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
-			// pageSize is valid
+		if ps, err := strconv.Atoi(pageSizeParam); err == nil && ps > 0 && ps <= 1000 {
+			pageSize = ps
 		} else {
-			pageSize = 50
+			pageSize = 20
 		}
 	}
 
@@ -137,10 +137,10 @@ func GetHighRiskOperators(c *gin.Context) {
 	fileName := "opt360Store/" + user.RegionalOffice + "/operator_high.parquet"
 
 	// Create S3 client
-	s3Client, err := config.NewS3Client(s3Cfg)
+	s3Client, err := config. NewS3Client(s3Cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
+			"error":    "Failed to create S3 client",
 			"details": err.Error(),
 		})
 		return
@@ -148,13 +148,13 @@ func GetHighRiskOperators(c *gin.Context) {
 
 	// Download the parquet file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
+		Bucket:  aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Parquet file not found",
-			"regional_office": user.RegionalOffice,
+			"error":            "Parquet file not found",
+			"regional_office":  user.RegionalOffice,
 			"file_path":       fileName,
 			"details":         err.Error(),
 		})
@@ -165,50 +165,50 @@ func GetHighRiskOperators(c *gin.Context) {
 	// Stream parquet data directly from S3 into memory
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c. JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to read S3 data",
 			"details": err.Error(),
 		})
 		return
 	}
 
-		// Write parquetBytes to a temp file
-		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create temp file",
-				"details": err.Error(),
-			})
-			return
-		}
-		_, err = tempFile.Write(parquetBytes)
-		if err != nil {
-			tempFile.Close()
-			os.Remove(tempFile.Name())
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to write to temp file",
-				"details": err.Error(),
-			})
-			return
-		}
+	// Write parquetBytes to a temp file
+	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create temp file",
+			"details": err.Error(),
+		})
+		return
+	}
+	_, err = tempFile. Write(parquetBytes)
+	if err != nil {
 		tempFile.Close()
-		defer os.Remove(tempFile.Name())
+		os.Remove(tempFile.Name())
+		c.JSON(http.StatusInternalServerError, gin. H{
+			"error":   "Failed to write to temp file",
+			"details": err.Error(),
+		})
+		return
+	}
+	tempFile.Close()
+	defer os.Remove(tempFile.Name())
 
-		fr, err := local.NewLocalFileReader(tempFile.Name())
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to open parquet file",
-				"details": err.Error(),
-			})
-			return
-		}
-		defer fr.Close()
+	fr, err := local.NewLocalFileReader(tempFile.Name())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to open parquet file",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create parquet reader",
-			"details": err.Error(),
+			"details":  err.Error(),
 		})
 		return
 	}
@@ -226,22 +226,26 @@ func GetHighRiskOperators(c *gin.Context) {
 		return
 	}
 
-	// Convert to JSON-friendly format
-	allData := make([]interface{}, 0, len(strs))
+	// Convert parquet data to Operator structs
+	allOperators := make([]models.Operator, 0, len(strs))
 	for _, str := range strs {
-		var row map[string]interface{}
-		jsonStr := fmt.Sprintf("%v", str)
-		// Try to parse as JSON
-		if err := json.Unmarshal([]byte(jsonStr), &row); err == nil {
-			allData = append(allData, row)
-		} else {
-			// If not valid JSON, return the raw interface
-			allData = append(allData, str)
+		// Convert the interface to JSON bytes first
+		jsonBytes, err := json.Marshal(str)
+		if err != nil {
+			continue 
 		}
+
+		
+		var operator models.Operator
+		if err := json.Unmarshal(jsonBytes, &operator); err != nil {
+			continue 
+		}
+
+		allOperators = append(allOperators, operator)
 	}
 
 	// Calculate pagination
-	totalRecords := len(allData)
+	totalRecords := len(allOperators)
 	totalPages := (totalRecords + pageSize - 1) / pageSize
 	
 	// Validate page number
@@ -261,9 +265,9 @@ func GetHighRiskOperators(c *gin.Context) {
 	}
 	
 	// Get paginated data
-	paginatedData := []interface{}{}
+	paginatedOperators := []models.Operator{}
 	if startIndex < endIndex {
-		paginatedData = allData[startIndex:endIndex]
+		paginatedOperators = allOperators[startIndex:endIndex]
 	}
 
 	// Return the data as JSON with pagination info
@@ -278,8 +282,8 @@ func GetHighRiskOperators(c *gin.Context) {
 			"has_next":      page < totalPages,
 			"has_previous":  page > 1,
 		},
-		"count": len(paginatedData),
-		"data":  paginatedData,
+		"count":  len(paginatedOperators),
+		"data":  paginatedOperators,
 	})
 }
 
