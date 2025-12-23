@@ -13,6 +13,7 @@ COPY ./.netrc /root/.netrc
 COPY ./cyclonedx-gomod /usr/local/bin/cyclonedx-gomod
 COPY . .
 
+RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o operator360-portal-backend .
 
 RUN chmod +x /usr/local/bin/cyclonedx-gomod
