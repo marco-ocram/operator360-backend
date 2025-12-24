@@ -4,7 +4,7 @@
         "port": 8080
     },
     "s3": {
-        "bucket_name": "prd-dsw-bronze-0",
+        "bucket_name": "prd-dsw-bronze-1",
         "access_key": "Z3GDXXKL70ZU5LEU60EC",
         "secret_key": "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
         "endpoint": "http://10.10.103.14:423",

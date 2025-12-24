@@ -26,10 +26,13 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/med_risk_operator", handlers.GetMediumRiskOperators)
         api.GET("/low_risk_operator", handlers.GetLowRiskOperators)
 		api.GET("/operator_details", handlers.GetOperatorDetails)
-		api.GET("/operator_packets", handlers.GetOperatorPackets)
-		api.GET("/search_operator_packets", handlers.SearchOperatorPacketsBySID)
+		api.GET("/operator_packets", handlers.GetOperatorPackets)  // Not in use
+		api.GET("/search_operator_packets", handlers.SearchOperatorPacketsBySID) // Not in use
+		api.GET("/sid_list", handlers.GetSIDList)
 		api.POST("/feedback", handlers.SubmitFeedback)
 		api.GET("/anamoly_indicators", handlers.GetAnamolyIndicators)
+		api.GET("/operator_risk_details", handlers.GetOperatorRiskDetails)
+		api.GET("/anamolous_sids", handlers.GetAnamolousSIDs)
 
 		
 	}
