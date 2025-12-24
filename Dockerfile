@@ -5,7 +5,7 @@ ENV GO111MODULE=on \
     GOPROXY=http://10.10.204.46:8080/repository/goproxy \
     GOPRIVATE=bitbucket.uidai.net.in/* \
     GONOPROXY=bitbucket.uidai.net.in/* \
-    GONOSUMDB=off
+    GONOSUMDB=*
 
 WORKDIR /
 
