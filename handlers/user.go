@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	
 	"strconv"
 	"strings"
 	"os"
@@ -1431,7 +1432,7 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 
 	// Get pagination parameters
 	page := 1
-	pageSize := 50
+	pageSize := 10
 	
 	if pageParam := c.Query("page"); pageParam != "" {
 		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
@@ -1445,7 +1446,7 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
 			// pageSize is valid
 		} else {
-			pageSize = 50
+			pageSize = 10
 		}
 	}
 
@@ -1453,15 +1454,17 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 	optState := c.Query("opt_state")       // e.g., "Gujarat"
 	optDistrict := c.Query("opt_district") // e.g., "Vadodara"
 	optID := c.Query("opt_id")             // e.g., "GJ_DOP_VDR_NS764416"
-	selectedDate := c.Query("date")        // e.g., "2025_12_12"
+	
+	// Get optional filter parameters
 	searchSID := c.Query("sid")            // e.g., "123456789012" (optional)
 	anomalyFilter := c.Query("anomaly_filter") // "anomalous" or "non-anomalous" (optional)
 	enrollmentTypeFilter := c.Query("enrollment_type") // "new_enrollment" or "update" (optional)
+	dateFilter := c.Query("date")          // e.g., "2025-12-25" or "2025_12_25" (optional)
 
 	// Validate required parameters
-	if optState == "" || optDistrict == "" || optID == "" || selectedDate == "" {
+	if optState == "" || optDistrict == "" || optID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_state, opt_district, opt_id, and date query parameters are required",
+			"error": "opt_state, opt_district, and opt_id query parameters are required",
 		})
 		return
 	}
@@ -1484,224 +1487,279 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		return
 	}
 
-	// Build folder path
-	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/
-	folderPath := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/"
+	// Build file path: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/sid.parquet
+	filePath := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/sid.parquet"
 
-	// Build file paths for the selected date
-	// Format: all_sid_YYYY_MM_DD_U.parquet and all_sid_YYYY_MM_DD_N.parquet
-	updateFile := folderPath + "all_sid_" + selectedDate + "_U.parquet"
-	newEnrollmentFile := folderPath + "all_sid_" + selectedDate + "_N.parquet"
-
-	// Helper function to read and filter parquet file
-	readAndFilterParquetFile := func(filePath string) ([]map[string]interface{}, error) {
-		result, err := s3Client.GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(s3Cfg.BucketName),
-			Key:    aws.String(filePath),
-		})
-		if err != nil {
-			return nil, err
-		}
-		defer result.Body.Close()
-
-		parquetBytes, err := io.ReadAll(result.Body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read S3 data: %w", err)
-		}
-
-		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
-		if err != nil {
-			return nil, fmt.Errorf("failed to create temp file: %w", err)
-		}
-		_, err = tempFile.Write(parquetBytes)
-		if err != nil {
-			tempFile.Close()
-			os.Remove(tempFile.Name())
-			return nil, fmt.Errorf("failed to write to temp file: %w", err)
-		}
-		tempFile.Close()
-		defer os.Remove(tempFile.Name())
-
-		fr, err := local.NewLocalFileReader(tempFile.Name())
-		if err != nil {
-			return nil, fmt.Errorf("failed to open parquet file: %w", err)
-		}
-		defer fr.Close()
-
-		pr, err := reader.NewParquetReader(fr, nil, 4)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create parquet reader: %w", err)
-		}
-		defer pr.ReadStop()
-
-		numRows := int(pr.GetNumRows())
-
-		strs, err := pr.ReadByNumber(numRows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read parquet data: %w", err)
-		}
-
-		data := make([]map[string]interface{}, 0)
-		for _, str := range strs {
-			rowMap := make(map[string]interface{})
-			jsonBytes, err := json.Marshal(str)
-			if err != nil {
-				continue
-			}
-			json.Unmarshal(jsonBytes, &rowMap)
-			if len(rowMap) == 0 {
-				continue
-			}
-
-			// If SID search is provided, filter by SID
-			if searchSID != "" {
-				matchFound := false
-				for key, val := range rowMap {
-					if strings.EqualFold(key, "eid") {
-						valStr := fmt.Sprintf("%v", val)
-						if strings.Contains(strings.ToLower(valStr), strings.ToLower(searchSID)) {
-							matchFound = true
-							break
-						}
-					}
-				}
-				if !matchFound {
-					continue
-				}
-			}
-
-			// If anomaly filter is provided, filter by anomaly status
-			if anomalyFilter != "" {
-				isAnomalous := false
-				
-				// Check Anomaly_type field
-				for key, val := range rowMap {
-					if strings.EqualFold(key, "anomaly_type") {
-						// Check if the value is a non-empty array
-						switch v := val.(type) {
-						case []interface{}:
-							isAnomalous = len(v) > 0
-						case []string:
-							isAnomalous = len(v) > 0
-						case string:
-							// Handle string representation of arrays
-							v = strings.TrimSpace(v)
-							isAnomalous = v != "[]" && v != "" && v != "null"
-						default:
-							// If it's some other type, check if it's not nil/empty
-							isAnomalous = val != nil
-						}
-						break
-					}
-				}
-				
-				// Apply filter based on anomaly status
-				if strings.EqualFold(anomalyFilter, "anomalous") && !isAnomalous {
-					continue
-				}
-				if strings.EqualFold(anomalyFilter, "non-anomalous") && isAnomalous {
-					continue
-				}
-			}
-
-			// If enrollment type filter is provided, filter by enrollment type
-			if enrollmentTypeFilter != "" {
-				enrollmentType := ""
-				
-				// Check Enrolnment_type field
-				for key, val := range rowMap {
-					if strings.EqualFold(key, "enrolnment_type") {
-						valStr := fmt.Sprintf("%v", val)
-						enrollmentType = strings.TrimSpace(valStr)
-						break
-					}
-				}
-				
-				// Map the enrollment type: "U" = update, "N" = new_enrollment
-				if strings.EqualFold(enrollmentTypeFilter, "update") && !strings.EqualFold(enrollmentType, "U") {
-					continue
-				}
-				if strings.EqualFold(enrollmentTypeFilter, "new_enrollment") && !strings.EqualFold(enrollmentType, "N") {
-					continue
-				}
-			}
-
-			data = append(data, rowMap)
-		}
-
-		return data, nil
-	}
-
-	// Try to read update file (_U)
-	updateData, updateErr := readAndFilterParquetFile(updateFile)
-
-	// Try to read new enrollment file (_N)
-	newEnrollmentData, newEnrollmentErr := readAndFilterParquetFile(newEnrollmentFile)
-
-	// Check if both files are missing
-	if updateErr != nil && newEnrollmentErr != nil {
+	// Download parquet file from S3
+	result, err := s3Client.GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(s3Cfg.BucketName),
+		Key:    aws.String(filePath),
+	})
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "No packet files found for the selected date",
+			"error":           "Failed to fetch sid.parquet file",
 			"regional_office": user.RegionalOffice,
 			"operator_id":     optID,
 			"state":           optState,
 			"district":        optDistrict,
-			"date":            selectedDate,
-			"folder_path":     folderPath,
+			"file_path":       filePath,
+			"details":         err.Error(),
+		})
+		return
+	}
+	defer result.Body.Close()
+
+	// Read parquet data from S3 response
+	parquetBytes, err := io.ReadAll(result.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read parquet data from S3",
+			"details": err.Error(),
 		})
 		return
 	}
 
-	// Combine data from both files
-	combinedData := make([]map[string]interface{}, 0)
-	filesProcessed := make([]gin.H, 0)
+	// Create temporary file to store parquet data
+	tempFile, err := os.CreateTemp("", "sid_*.parquet")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create temporary file",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer os.Remove(tempFile.Name())
 
-	if updateErr == nil {
-		filesProcessed = append(filesProcessed, gin.H{
-			"file_name":    "all_sid_" + selectedDate + "_U.parquet",
-			"packet_type":  "update",
-			"record_count": len(updateData),
-			"status":       "success",
+	// Write parquet data to temporary file
+	_, err = tempFile.Write(parquetBytes)
+	if err != nil {
+		tempFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to write parquet data to temporary file",
+			"details": err.Error(),
 		})
-		// Add packet type to each row
-		for _, row := range updateData {
-			row["packet_type"] = "update"
-			row["date"] = selectedDate
-			combinedData = append(combinedData, row)
-		}
-	} else {
-		filesProcessed = append(filesProcessed, gin.H{
-			"file_name":   "all_sid_" + selectedDate + "_U.parquet",
-			"packet_type": "update",
-			"status":      "not_found",
-			"error":       updateErr.Error(),
+		return
+	}
+	tempFile.Close()
+
+	// Open parquet file reader
+	fr, err := local.NewLocalFileReader(tempFile.Name())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to open parquet file",
+			"details": err.Error(),
 		})
+		return
+	}
+	defer fr.Close()
+
+	// Create parquet reader
+	pr, err := reader.NewParquetReader(fr, nil, 4)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create parquet reader",
+			"details": err.Error(),
+		})
+		return
+	}
+	defer pr.ReadStop()
+
+	// Read all rows from parquet file
+	numRows := int(pr.GetNumRows())
+	strs, err := pr.ReadByNumber(numRows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read parquet data",
+			"details": err.Error(),
+		})
+		return
 	}
 
-	if newEnrollmentErr == nil {
-		filesProcessed = append(filesProcessed, gin.H{
-			"file_name":    "all_sid_" + selectedDate + "_N.parquet",
-			"packet_type":  "new_enrollment",
-			"record_count": len(newEnrollmentData),
-			"status":       "success",
-		})
-		// Add packet type to each row
-		for _, row := range newEnrollmentData {
-			row["packet_type"] = "new_enrollment"
-			row["date"] = selectedDate
-			combinedData = append(combinedData, row)
+	// Convert parquet data to JSON format
+	allData := make([]map[string]interface{}, 0)
+	for _, str := range strs {
+		// Marshal to JSON and unmarshal back to get map
+		jsonBytes, err := json.Marshal(str)
+		if err != nil {
+			continue
 		}
-	} else {
-		filesProcessed = append(filesProcessed, gin.H{
-			"file_name":   "all_sid_" + selectedDate + "_N.parquet",
-			"packet_type": "new_enrollment",
-			"status":      "not_found",
-			"error":       newEnrollmentErr.Error(),
-		})
+
+		var rowMap map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &rowMap); err != nil {
+			continue
+		}
+
+		// Skip empty rows
+		if len(rowMap) == 0 {
+			continue
+		}
+
+		// Convert date fields to normal format (YYYY-MM-DD HH:MM:SS)
+		for key, val := range rowMap {
+			lowerKey := strings.ToLower(key)
+			if strings.Contains(lowerKey, "date") || strings.Contains(lowerKey, "time") {
+				var timestamp float64
+				
+				// Handle different numeric types
+				switch v := val.(type) {
+				case float64:
+					timestamp = v
+				case float32:
+					timestamp = float64(v)
+				case int64:
+					timestamp = float64(v)
+				case int:
+					timestamp = float64(v)
+				case string:
+					// Try parsing string as number
+					valStr := strings.TrimSpace(v)
+					// Check if it's a date string format
+					if strings.Contains(valStr, "-") || strings.Contains(valStr, "_") {
+						// Already in string date format, normalize it
+						normalizedDate := strings.ReplaceAll(valStr, "_", "-")
+						rowMap[key] = normalizedDate
+						continue
+					}
+					// Try parsing as number
+					fmt.Sscanf(valStr, "%f", &timestamp)
+				}
+				
+				// If we have a timestamp value, convert it
+				if timestamp > 0 {
+					// Detect timestamp precision:
+					// Nanoseconds: > 1e15 (typically 19 digits like 1761396321000000000)
+					// Microseconds: > 1e12 and < 1e15
+					// Milliseconds: > 1e9 and < 1e12
+					// Seconds: < 1e9
+					
+					if timestamp > 1e15 {
+						// Nanoseconds - convert to seconds
+						timestamp = timestamp / 1e9
+					} else if timestamp > 1e12 {
+						// Milliseconds - convert to seconds
+						timestamp = timestamp / 1000.0
+					}
+					
+					// Validate timestamp is in reasonable range (between 2000 and 2100)
+					// Unix timestamp for 2000-01-01: 946684800
+					// Unix timestamp for 2100-01-01: 4102444800
+					if timestamp >= 946684800 && timestamp <= 4102444800 {
+						t := time.Unix(int64(timestamp), 0)
+						formattedDate := t.Format("2006-01-02 15:04:05")
+						rowMap[key] = formattedDate
+					}
+				}
+			}
+		}
+
+		allData = append(allData, rowMap)
+	}
+
+	// Apply filters if provided
+	filteredData := make([]map[string]interface{}, 0)
+	for _, rowMap := range allData {
+		// Filter by SID search (check "eid" field)
+		if searchSID != "" {
+			matchFound := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "eid") {
+					valStr := fmt.Sprintf("%v", val)
+					if strings.Contains(strings.ToLower(valStr), strings.ToLower(searchSID)) {
+						matchFound = true
+						break
+					}
+				}
+			}
+			if !matchFound {
+				continue
+			}
+		}
+
+		// Filter by anomaly status
+		if anomalyFilter != "" {
+			isAnomalous := false
+			
+			// Check Anomaly_type field
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "anomaly_type") {
+					// Check if the value is a non-empty array
+					switch v := val.(type) {
+					case []interface{}:
+						isAnomalous = len(v) > 0
+					case []string:
+						isAnomalous = len(v) > 0
+					case string:
+						// Handle string representation of arrays
+						v = strings.TrimSpace(v)
+						isAnomalous = v != "[]" && v != "" && v != "null"
+					default:
+						// If it's some other type, check if it's not nil/empty
+						isAnomalous = val != nil
+					}
+					break
+				}
+			}
+			
+			// Apply filter based on anomaly status
+			if strings.EqualFold(anomalyFilter, "anomalous") && !isAnomalous {
+				continue
+			}
+			if strings.EqualFold(anomalyFilter, "non-anomalous") && isAnomalous {
+				continue
+			}
+		}
+
+		// Filter by enrollment type
+		if enrollmentTypeFilter != "" {
+			enrollmentType := ""
+			
+			// Check Enrolnment_type field
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "enrolnment_type") {
+					valStr := fmt.Sprintf("%v", val)
+					enrollmentType = strings.TrimSpace(valStr)
+					break
+				}
+			}
+			
+			// Map the enrollment type: "U" = update, "N" = new_enrollment
+			if strings.EqualFold(enrollmentTypeFilter, "update") && !strings.EqualFold(enrollmentType, "U") {
+				continue
+			}
+			if strings.EqualFold(enrollmentTypeFilter, "new_enrollment") && !strings.EqualFold(enrollmentType, "N") {
+				continue
+			}
+		}
+
+		// Filter by date
+		if dateFilter != "" {
+			matchFound := false
+			// Normalize date filter (support both - and _ separators)
+			normalizedDateFilter := strings.ReplaceAll(dateFilter, "-", "_")
+			
+			// Check common date fields: date, Date, packet_date, Date_packet, etc.
+			for key, val := range rowMap {
+				lowerKey := strings.ToLower(key)
+				if strings.Contains(lowerKey, "date") {
+					valStr := fmt.Sprintf("%v", val)
+					// Normalize value (replace - with _)
+					normalizedVal := strings.ReplaceAll(valStr, "-", "_")
+					if strings.Contains(normalizedVal, normalizedDateFilter) {
+						matchFound = true
+						break
+					}
+				}
+			}
+			if !matchFound {
+				continue
+			}
+		}
+
+		filteredData = append(filteredData, rowMap)
 	}
 
 	// Calculate pagination
-	totalRecords := len(combinedData)
+	totalRecords := len(filteredData)
 	totalPages := (totalRecords + pageSize - 1) / pageSize
 	
 	if page > totalPages && totalPages > 0 {
@@ -1720,22 +1778,20 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 	
 	paginatedData := []map[string]interface{}{}
 	if startIndex < endIndex {
-		paginatedData = combinedData[startIndex:endIndex]
+		paginatedData = filteredData[startIndex:endIndex]
 	}
 
-	// Return combined data with pagination
+	// Return paginated data
 	c.JSON(http.StatusOK, gin.H{
-		"regional_office":      user.RegionalOffice,
-		"operator_id":          optID,
-		"state":                optState,
-		"district":             optDistrict,
-		"folder_path":          folderPath,
-		"selected_date":        selectedDate,
-		"search_sid":           searchSID,
-		"anomaly_filter":       anomalyFilter,
+		"regional_office":        user.RegionalOffice,
+		"operator_id":            optID,
+		"state":                  optState,
+		"district":               optDistrict,
+		"file_path":              filePath,
+		"search_sid":             searchSID,
+		"anomaly_filter":         anomalyFilter,
 		"enrollment_type_filter": enrollmentTypeFilter,
-		"files_processed":      filesProcessed,
-		"total_records":        totalRecords,
+		"date_filter":            dateFilter,
 		"pagination": gin.H{
 			"page":          page,
 			"page_size":     pageSize,
@@ -2049,6 +2105,9 @@ func GetAnamolousSIDs(c *gin.Context) {
 	optState := c.Query("opt_state")       // e.g., "Maharashtra"
 	optDistrict := c.Query("opt_district") // e.g., "Sangli"
 	optID := c.Query("opt_id")             // e.g., "MH_WMIT_SN_NS046496"
+	
+	// Get optional filter parameter
+	anomalyCategoryFilter := c.Query("anomaly_category") // e.g., "work", "hardware", "suspicious", "document", "biometrics" (optional)
 
 	// Validate required parameters
 	if optState == "" || optDistrict == "" || optID == "" {
@@ -2149,8 +2208,22 @@ func GetAnamolousSIDs(c *gin.Context) {
 		}
 	}
 
+	// Apply anomaly_category filter if provided
+	filteredData := allData
+	if anomalyCategoryFilter != "" {
+		filteredData = make([]map[string]interface{}, 0)
+		for _, record := range allData {
+			if category, ok := record["anomaly_category"].(string); ok {
+				// Case-insensitive comparison
+				if strings.EqualFold(category, anomalyCategoryFilter) {
+					filteredData = append(filteredData, record)
+				}
+			}
+		}
+	}
+
 	// Calculate pagination
-	totalRecords := len(allData)
+	totalRecords := len(filteredData)
 	totalPages := (totalRecords + pageSize - 1) / pageSize
 	
 	if page > totalPages && totalPages > 0 {
@@ -2169,7 +2242,7 @@ func GetAnamolousSIDs(c *gin.Context) {
 	
 	paginatedData := []map[string]interface{}{}
 	if startIndex < endIndex {
-		paginatedData = allData[startIndex:endIndex]
+		paginatedData = filteredData[startIndex:endIndex]
 	}
 
 	// Return data with pagination
@@ -2179,6 +2252,7 @@ func GetAnamolousSIDs(c *gin.Context) {
 		"state":           optState,
 		"district":        optDistrict,
 		"file":            fileName,
+		"anomaly_category_filter": anomalyCategoryFilter,
 		"pagination": gin.H{
 			"page":          page,
 			"page_size":     pageSize,
