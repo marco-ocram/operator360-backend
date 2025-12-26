@@ -11,7 +11,6 @@ WORKDIR /
 
 COPY ./.netrc /root/.netrc
 COPY ./cyclonedx-gomod /usr/local/bin/cyclonedx-gomod
-COPY ./cyclonedx-gomod /usr/local/bin/cyclonedx-gomod
 COPY . .
 
 RUN go mod download
