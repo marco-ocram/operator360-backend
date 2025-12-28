@@ -1,10 +1,17 @@
 package routes
 
 import (
-	"opt360-portal-backend/handlers"
+
 	"opt360-portal-backend/middleware"
 
 	"github.com/gin-gonic/gin"
+	"opt360-portal-backend/handlers/LandingPage"
+	"opt360-portal-backend/handlers/OperatorTab"
+	"opt360-portal-backend/handlers/OperatorDetailView"
+	"opt360-portal-backend/handlers/SidReview"
+	"opt360-portal-backend/handlers/Feedback"
+	"opt360-portal-backend/handlers/AnamolyIndicators"
+	"opt360-portal-backend/handlers/User"
 )
 
 
@@ -18,21 +25,20 @@ func SetupRoutes(router *gin.Engine) {
 	api.Use(middleware.AuthMiddleware())
 	{
 	
-		api.GET("/user/info", handlers.GetUserInfo)
-		api.GET("/kpi", handlers.GetKPIData)
-		api.GET("/ro_risk_distribution", handlers.GetROQRiskDistribution)
-		api.GET("/operator_list", handlers.GetOperatorList)
-		api.GET("/high_risk_operator", handlers.GetHighRiskOperators)
-		api.GET("/med_risk_operator", handlers.GetMediumRiskOperators)
-        api.GET("/low_risk_operator", handlers.GetLowRiskOperators)
-		api.GET("/operator_details", handlers.GetOperatorDetails)
-		api.GET("/operator_packets", handlers.GetOperatorPackets)  // Not in use
-		api.GET("/search_operator_packets", handlers.SearchOperatorPacketsBySID) // Not in use
-		api.GET("/sid_list", handlers.GetSIDList)
-		api.POST("/feedback", handlers.SubmitFeedback)
-		api.GET("/anamoly_indicators", handlers.GetAnamolyIndicators)
-		api.GET("/operator_risk_details", handlers.GetOperatorRiskDetails)
-		api.GET("/anamolous_sids", handlers.GetAnamolousSIDs)
+		api.GET("/user/info", User.GetUserInfo)
+		api.GET("/kpi", LandingPage.GetKPIData)
+		api.GET("/ro_risk_distribution", LandingPage.GetROQRiskDistribution)
+		api.GET("/operator_list", OperatorTab.GetOperatorList)
+		api.GET("/high_risk_operator", OperatorTab.GetHighRiskOperators)
+		api.GET("/med_risk_operator", OperatorTab.GetMediumRiskOperators)
+        api.GET("/low_risk_operator", OperatorTab.GetLowRiskOperators)
+		api.GET("/operator_details", OperatorDetailView.GetOperatorDetails)
+		api.GET("/search_operator_packets", SidReview.SearchOperatorPacketsBySID)
+		api.GET("/anamolous_sids", SidReview.GetAnamolousSIDs)
+		api.POST("/feedback", Feedback.SubmitFeedback)
+		api.GET("/anamoly_indicators", AnamolyIndicators.GetAnamolyIndicators)
+		api.GET("/operator_risk_details", OperatorDetailView.GetOperatorRiskDetails)
+		
 
 		
 	}

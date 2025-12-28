@@ -1,15 +1,14 @@
-package handlers
+package OperatorTab
 
 import (
+
 	"encoding/json"
 	"io"
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"os"
 	"strconv"
-	"strings"
-
+	"os"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -17,20 +16,26 @@ import (
 	"github.com/xitongsys/parquet-go/reader"
 )
 
-// GetSIDList fetches sid.parquet file for a specific operator and returns paginated data
-func GetSIDList(c *gin.Context) {
-	// Get user from context
+
+
+
+
+
+
+// GetHighRiskOperators fetches operator_high.parquet file based on user's regional office
+func GetHighRiskOperators(c *gin.Context) {
+	// Get user from context (set by auth middleware)
 	userInterface, exists := c.Get("user")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error":  "User not found in context"})
 		return
 	}
 
-	user := userInterface.(*models.User)
+	user := userInterface.(*models. User)
 
 	// Get pagination parameters
 	page := 1
-	pageSize := 20
+	pageSize := 20 // Default page size
 	
 	if pageParam := c.Query("page"); pageParam != "" {
 		if p, err := strconv.Atoi(pageParam); err == nil && p > 0 {
@@ -48,36 +53,18 @@ func GetSIDList(c *gin.Context) {
 		}
 	}
 
-	// Get required query parameters
-	optState := c.Query("opt_state")       // e.g., "Rajasthan"
-	optDistrict := c.Query("opt_district") // e.g., "Udaipur"
-	optID := c.Query("opt_id")             // e.g., "WCD_RJ_UD_NS887326"
-
-	// Validate required parameters
-	if optState == "" || optDistrict == "" || optID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_state, opt_district, and opt_id query parameters are required",
-		})
-		return
-	}
-
-	// Convert spaces to underscores for S3 path compatibility
-	optStateForPath := strings.ReplaceAll(optState, " ", "_")
-	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
-	optIDForPath := strings.ReplaceAll(optID, " ", "_")
-
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
-	// Build file path for sid.parquet
-	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/sid.parquet
-	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/sid.parquet"
+	// Build file path based on user's regional office
+	// Format: opt360Store/{RegionalOffice}/operator_high.parquet
+	fileName := "opt360Store/" + user.RegionalOffice + "/operator_high.parquet"
 
 	// Create S3 client
-	s3Client, err := config.NewS3Client(s3Cfg)
+	s3Client, err := config. NewS3Client(s3Cfg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
+			"error":    "Failed to create S3 client",
 			"details": err.Error(),
 		})
 		return
@@ -85,16 +72,13 @@ func GetSIDList(c *gin.Context) {
 
 	// Download the parquet file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
+		Bucket:  aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "SID list file not found",
-			"regional_office": user.RegionalOffice,
-			"operator_id":     optID,
-			"state":           optState,
-			"district":        optDistrict,
+			"error":            "Parquet file not found",
+			"regional_office":  user.RegionalOffice,
 			"file_path":       fileName,
 			"details":         err.Error(),
 		})
@@ -102,10 +86,10 @@ func GetSIDList(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Read parquet data from S3
+	// Stream parquet data directly from S3 into memory
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c. JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to read S3 data",
 			"details": err.Error(),
 		})
@@ -121,11 +105,11 @@ func GetSIDList(c *gin.Context) {
 		})
 		return
 	}
-	_, err = tempFile.Write(parquetBytes)
+	_, err = tempFile. Write(parquetBytes)
 	if err != nil {
 		tempFile.Close()
 		os.Remove(tempFile.Name())
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.JSON(http.StatusInternalServerError, gin. H{
 			"error":   "Failed to write to temp file",
 			"details": err.Error(),
 		})
@@ -134,7 +118,6 @@ func GetSIDList(c *gin.Context) {
 	tempFile.Close()
 	defer os.Remove(tempFile.Name())
 
-	// Open parquet file
 	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -145,12 +128,11 @@ func GetSIDList(c *gin.Context) {
 	}
 	defer fr.Close()
 
-	// Create parquet reader
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create parquet reader",
-			"details": err.Error(),
+			"details":  err.Error(),
 		})
 		return
 	}
@@ -158,7 +140,7 @@ func GetSIDList(c *gin.Context) {
 
 	numRows := int(pr.GetNumRows())
 
-	// Read all data
+	// Read all data at once using ReadByNumber
 	strs, err := pr.ReadByNumber(numRows)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -168,29 +150,34 @@ func GetSIDList(c *gin.Context) {
 		return
 	}
 
-	// Convert to JSON-friendly format
-	allData := make([]map[string]interface{}, 0, len(strs))
+	// Convert parquet data to Operator structs
+	allOperators := make([]models.Operator, 0, len(strs))
 	for _, str := range strs {
-		rowMap := make(map[string]interface{})
+		// Convert the interface to JSON bytes first
 		jsonBytes, err := json.Marshal(str)
 		if err != nil {
-			continue
+			continue 
 		}
-		json.Unmarshal(jsonBytes, &rowMap)
-		if len(rowMap) == 0 {
-			continue
+
+		
+		var operator models.Operator
+		if err := json.Unmarshal(jsonBytes, &operator); err != nil {
+			continue 
 		}
-		allData = append(allData, rowMap)
+
+		allOperators = append(allOperators, operator)
 	}
 
 	// Calculate pagination
-	totalRecords := len(allData)
+	totalRecords := len(allOperators)
 	totalPages := (totalRecords + pageSize - 1) / pageSize
 	
+	// Validate page number
 	if page > totalPages && totalPages > 0 {
 		page = totalPages
 	}
 	
+	// Calculate start and end indices
 	startIndex := (page - 1) * pageSize
 	endIndex := startIndex + pageSize
 	
@@ -201,17 +188,15 @@ func GetSIDList(c *gin.Context) {
 		endIndex = totalRecords
 	}
 	
-	paginatedData := []map[string]interface{}{}
+	// Get paginated data
+	paginatedOperators := []models.Operator{}
 	if startIndex < endIndex {
-		paginatedData = allData[startIndex:endIndex]
+		paginatedOperators = allOperators[startIndex:endIndex]
 	}
 
-	// Return the data as JSON with pagination
+	// Return the data as JSON with pagination info
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
-		"operator_id":     optID,
-		"state":           optState,
-		"district":        optDistrict,
 		"file":            fileName,
 		"pagination": gin.H{
 			"page":          page,
@@ -221,8 +206,7 @@ func GetSIDList(c *gin.Context) {
 			"has_next":      page < totalPages,
 			"has_previous":  page > 1,
 		},
-		"count":        len(paginatedData),
-		"data":         paginatedData,
-		"requested_by": user.ADID,
+		"count":  len(paginatedOperators),
+		"data":  paginatedOperators,
 	})
 }
