@@ -21,8 +21,7 @@ type HighestRiskOperator struct {
 
 
 type TopOperator struct {
-	ActiveStatus   int     `json:"active_status"`
-	LastSyncTime   int64   `json:"last_sync_time"`
+	ActiveStatus   float64    `json:"active_status"`
 	OptDistrict    string  `json:"opt_district"`
 	OptEA          string  `json:"opt_ea"`
 	OptID          string  `json:"opt_id"`
@@ -31,6 +30,15 @@ type TopOperator struct {
 	OptRiskScore   float64 `json:"opt_risk_score"`
 	OptRO          string  `json:"opt_ro"`
 	OptState       string  `json:"opt_state"`
-	PacketsPerDay  float64  `json:"packets_per_day"`
+	PacketsPerDay  float64  `json:"pkts_per_day"`
 	Rank           int     `json:"rn"`
+	OptEmail 	   string `json:"opt_email"`
+	OptMobile 	   string `json:"opt_mobile"`
+	MachineDetails MachineDetails `json:"machine_details"`
+}
+
+type MachineDetails struct{
+	LastSyncTime string `json:"last_sync_time"`
+	MachineCode string `json:"machine_code"`
+	StationId string `json:"station_id"`
 }
