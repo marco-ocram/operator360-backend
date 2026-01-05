@@ -9,5 +9,12 @@
         "secret_key": "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
         "endpoint": "http://10.10.103.14:423",
         "region": "us-east-1"
+    },
+    "database": {
+        "user": "Stg_user_admin",
+        "password": "QS@u5ER#AdM!n151290",
+        "host": "10.10.73.88",
+        "port": 3306,
+        "database": "data_platform"
     }
 }

@@ -2,19 +2,36 @@ package main
 
 import (
 	"fmt"
-	"opt360-portal-backend/auth"
+	"log"
+	"opt360-portal-backend/config"
+	"opt360-portal-backend/db"
 	"opt360-portal-backend/routes"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Load users configuration
-	if err := auth.LoadUsersConfig(); err != nil {
-		panic("Failed to load users.json: " + err.Error())
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatal("Failed to load config.json: ", err)
 	}
 
-	fmt.Printf("Loaded %d users from users.json\n", len(auth.UsersConfig.Users))
+	// Initialize database connection
+	dbConfig := db.DBConfig{
+		User:     cfg.Database.User,
+		Password: cfg.Database.Password,
+		Host:     cfg.Database.Host,
+		Port:     cfg.Database.Port,
+		Database: cfg.Database.Database,
+	}
+
+	if err := db.InitDB(dbConfig); err != nil {
+		log.Fatal("Failed to initialize database: ", err)
+	}
+	defer db.Close()
+
+	fmt.Println("Database connection established")
 
 	// Initialize Gin router
 	router := gin.Default()
@@ -23,8 +40,12 @@ func main() {
 	routes.SetupRoutes(router)
 
 	// Start server
-	fmt.Println("Server starting on http://0.0.0.0:8080")
-	router.Run("0.0.0.0:8080")
+	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	if cfg.Server.Host == "" {
+		serverAddr = fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
+	}
+	fmt.Printf("Server starting on http://%s\n", serverAddr)
+	router.Run(serverAddr)
 }
 
 

@@ -21,13 +21,23 @@ type S3Config struct {
 	Region     string `json:"region"`
 }
 
+// DatabaseConfig holds database connection configuration
+type DatabaseConfig struct {
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+}
+
 // Config holds the entire configuration structure
 type Config struct {
 	Server struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	S3 S3Config `json:"s3"`
+	S3       S3Config       `json:"s3"`
+	Database DatabaseConfig `json:"database"`
 }
 
 var (
@@ -59,6 +69,14 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080 
+	}
+	
+	// Database validation
+	if cfg.Database.User == "" || cfg.Database.Password == "" || cfg.Database.Host == "" {
+		return nil, fmt.Errorf("database 'user', 'password', and 'host' must be set in config file")
+	}
+	if cfg.Database.Port == 0 {
+		cfg.Database.Port = 3306 // Default MySQL port
 	}
 
 	return &cfg, nil

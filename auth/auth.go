@@ -1,34 +1,22 @@
 package auth
 
 import (
-	"encoding/json"
-	"os"
-
+	"log"
+	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 )
 
-var UsersConfig models.UsersConfig
-
-// LoadUsersConfig loads the users configuration from users.json
-func LoadUsersConfig() error {
-	file, err := os.ReadFile("users.json")
+// GetUserByADID retrieves user information from database
+func GetUserByADID(adID string) (*models.User, bool) {
+	user, err := db.GetUserByADID(adID)
 	if err != nil {
-		return err
+		log.Printf("Error getting user by ADID '%s': %v", adID, err)
+		return nil, false
 	}
-
-	if err := json.Unmarshal(file, &UsersConfig); err != nil {
-		return err
-	}
-
-	return nil
+	return user, true
 }
 
-// GetUserByADID retrieves user information from users config
-func GetUserByADID(adID string) (*models.User, bool) {
-	for _, user := range UsersConfig.Users {
-		if user.ADID == adID {
-			return &user, true
-		}
-	}
-	return nil, false
+// GetAllUsers retrieves all users from database
+func GetAllUsers() ([]models.User, error) {
+	return db.GetAllUsers()
 }
