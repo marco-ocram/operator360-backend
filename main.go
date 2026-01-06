@@ -39,11 +39,12 @@ func main() {
 	// Setup all routes
 	routes.SetupRoutes(router)
 
-	// Start server
-	serverAddr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	if cfg.Server.Host == "" {
-		serverAddr = fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
+	// Start server - always bind to 0.0.0.0 in container environments
+	port := cfg.Server.Port
+	if port == 0 {
+		port = 8080
 	}
+	serverAddr := fmt.Sprintf("0.0.0.0:%d", port)
 	fmt.Printf("Server starting on http://%s\n", serverAddr)
 	router.Run(serverAddr)
 }
