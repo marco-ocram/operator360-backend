@@ -7,7 +7,7 @@ import (
 	"log"
 	"sync"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"opt360-portal-backend/models"
 )
 
@@ -29,19 +29,17 @@ type DBConfig struct {
 // InitDB initializes the database connection
 func InitDB(config DBConfig) error {
 	dbOnce.Do(func() {
-		// MySQL connection string format: username:password@tcp(host:port)/database
-		connString := fmt.Sprintf("%s:%s@tcp(%s:%d)/",
-			config.User,
-			config.Password,
-			config.Host,
-			config.Port,
-		)
-		
-		if config.Database != "" {
-			connString += config.Database
+		// Use mysql.Config to safely build connection string
+		cfg := mysql.Config{
+			User:                 config.User,
+			Passwd:               config.Password,
+			Net:                  "tcp",
+			Addr:                 fmt.Sprintf("%s:%d", config.Host, config.Port),
+			DBName:               config.Database,
+			AllowNativePasswords: true,
 		}
 
-		db, dbErr = sql.Open("mysql", connString)
+		db, dbErr = sql.Open("mysql", cfg.FormatDSN())
 		if dbErr != nil {
 			dbErr = fmt.Errorf("failed to open database connection: %w", dbErr)
 			return
