@@ -1,17 +1,17 @@
 package OperatorDetailView
 
 import (
-
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-    "strings"
-    "github.com/aws/aws-sdk-go/aws"
+	"strings"
+
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
-	
 )
 
 // toCamelCase converts a string with spaces to PascalCase
@@ -100,10 +100,11 @@ func GetOperatorFeatures(c *gin.Context) {
 		})
 		return
 	}
+	// log.Println("Operator Features JSON Data:", string(body))
 
-	// Parse JSON data
-	var jsonData interface{}
-	if err := json.Unmarshal(body, &jsonData); err != nil {
+	// Parse the original JSON structure
+	var originalData map[string]interface{}
+	if err := json.Unmarshal(body, &originalData); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to parse JSON data",
 			"details": err.Error(),
@@ -111,14 +112,30 @@ func GetOperatorFeatures(c *gin.Context) {
 		return
 	}
 
-	// Return all data without pagination
-	c.JSON(http.StatusOK, gin.H{
-		"regional_office": user.RegionalOffice,
-		"operator_id":     optID,
-		"state":           optState,
-		"district":        optDistrict,
-		"file":            fileName,
-		"data":            jsonData,
-		"requested_by":    user.ADID,
-	})
+	// Transform the data structure
+	transformedData := make(map[string]interface{})
+	transformedData["opt_id"] = originalData["opt_id"]
+	
+	// Copy metadata if it exists
+	if metadata, ok := originalData["metadata"]; ok {
+		transformedData["metadata"] = metadata
+	}
+
+	// Transform kpis from nested object to flat array
+	var kpisArray []map[string]interface{}
+	if kpis, ok := originalData["kpis"].(map[string]interface{}); ok {
+		for categoryName, categoryFeatures := range kpis {
+			if featuresArray, ok := categoryFeatures.([]interface{}); ok && len(featuresArray) > 0 {
+				categoryItem := map[string]interface{}{
+					categoryName: featuresArray,
+				}
+				kpisArray = append(kpisArray, categoryItem)
+			}
+		}
+	}
+	transformedData["kpis"] = kpisArray
+	// log.Println("Transformed Operator Features Data:", transformedData)
+
+	// Return transformed data
+	c.JSON(http.StatusOK, transformedData)
 }
