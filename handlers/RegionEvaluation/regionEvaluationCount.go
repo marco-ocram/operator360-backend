@@ -19,6 +19,11 @@ func toCamelCase(s string) string {
 	if len(words) == 0 {
 		return s
 	}
+	
+	// If no spaces, return as-is (already formatted)
+	if len(words) == 1 {
+		return s
+	}
 
 	result := ""
 	for _, word := range words {
