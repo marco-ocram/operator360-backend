@@ -12,6 +12,7 @@ import (
 	"opt360-portal-backend/handlers/Feedback"
 	"opt360-portal-backend/handlers/AnamolyIndicators"
 	"opt360-portal-backend/handlers/User"
+	"opt360-portal-backend/handlers/RegionEvaluation"
 )
 
 
@@ -39,6 +40,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/feedback", Feedback.SubmitFeedback)
 		api.GET("/anamoly_indicators", AnamolyIndicators.GetAnamolyIndicators)
 		api.GET("/operator_risk_details", OperatorDetailView.GetOperatorRiskDetails)
+		api.GET("/region_evaluation_count", RegionEvaluation.GetRegionEvaluationCount)
 		
 
 		
