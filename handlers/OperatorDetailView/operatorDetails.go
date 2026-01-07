@@ -54,7 +54,7 @@ func GetOperatorDetails(c *gin.Context) {
 	// Convert spaces to camelCase for S3 path compatibility
 	optStateForPath := toCamelCase(optState)
 	optDistrictForPath := toCamelCase(optDistrict)
-	optIDForPath := toCamelCase(optID)
+	optIDForPath := optID 
 
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()

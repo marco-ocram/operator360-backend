@@ -14,6 +14,20 @@ import (
 	
 )
 
+// toCamelCase converts a string with spaces to PascalCase
+func toCamelCaseFeatures(s string) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	
+	result := ""
+	for _, word := range words {
+		result += strings.Title(strings.ToLower(word))
+	}
+	return result
+}
+
 func GetOperatorFeatures(c *gin.Context) {
 
 	userInterface, exists := c.Get("user")
@@ -37,17 +51,16 @@ func GetOperatorFeatures(c *gin.Context) {
 		return
 	}
 
-	// Convert spaces to underscores for S3 path compatibility
-	optStateForPath := strings.ReplaceAll(optState, " ", "_")
-	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
-	optIDForPath := strings.ReplaceAll(optID, " ", "_")
+	optStateForPath := toCamelCaseFeatures(optState)
+	optDistrictForPath := toCamelCaseFeatures(optDistrict)
+	optIDForPath := optID 
 
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
 	
 	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/opt_details.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/opeartor_features.json"
+	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/operator_features.json"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)

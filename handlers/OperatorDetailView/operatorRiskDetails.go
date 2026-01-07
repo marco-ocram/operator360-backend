@@ -14,6 +14,20 @@ import (
 	
 )
 
+// toCamelCase converts a string with spaces to PascalCase
+func toCamelCaseRisk(s string) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+	
+	result := ""
+	for _, word := range words {
+		result += strings.Title(strings.ToLower(word))
+	}
+	return result
+}
+
 
 func GetOperatorRiskDetails(c *gin.Context) {
 	// Get user from context
@@ -38,10 +52,10 @@ func GetOperatorRiskDetails(c *gin.Context) {
 		return
 	}
 
-	// Convert spaces to underscores for S3 path compatibility
-	optStateForPath := strings.ReplaceAll(optState, " ", "_")
-	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
-	optIDForPath := strings.ReplaceAll(optID, " ", "_")
+	
+	optStateForPath := toCamelCaseRisk(optState)
+	optDistrictForPath := toCamelCaseRisk(optDistrict)
+	optIDForPath := optID 
 
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()

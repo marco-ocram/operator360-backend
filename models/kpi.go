@@ -16,7 +16,7 @@ type KPIResponse struct {
 type HighestRiskOperator struct {
 	OptID      string  `json:"opt_id"`
 	OptName    string  `json:"opt_name"`
-	RiskScore  float64 `json:"risk_score"`
+	RiskScore  float64 `json:"opt_risk_score"`
 }
 
 
