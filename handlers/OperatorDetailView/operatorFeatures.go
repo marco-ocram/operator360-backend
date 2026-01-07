@@ -3,7 +3,6 @@ package OperatorDetailView
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
