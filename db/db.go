@@ -138,6 +138,39 @@ func GetAllUsers() ([]models.User, error) {
 	return users, nil
 }
 
+// UpdateUserGroup updates the group field for a user identified by user_id
+func UpdateUserGroup(userID string, group string) error {
+	database, err := GetDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return err
+	}
+
+	query := `UPDATE opt360_portal_users SET ` + "`group`" + ` = ? WHERE user_id = ?`
+
+	log.Printf("Updating group for user_id: %s to: %s", userID, group)
+
+	result, err := database.Exec(query, group, userID)
+	if err != nil {
+		log.Printf("Failed to update group for user_id '%s': %v", userID, err)
+		return fmt.Errorf("failed to update user group: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("Failed to get rows affected: %v", err)
+		return fmt.Errorf("failed to verify update: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		log.Printf("No user found with user_id: %s", userID)
+		return fmt.Errorf("user not found")
+	}
+
+	log.Printf("Successfully updated group for user_id: %s", userID)
+	return nil
+}
+
 // Close closes the database connection
 func Close() error {
 	if db != nil {

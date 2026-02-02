@@ -27,6 +27,7 @@ func SetupRoutes(router *gin.Engine) {
 	{
 	
 		api.GET("/user/info", User.GetUserInfo)
+		api.POST("/update_ro", User.UpdateRO)
 		api.GET("/kpi", LandingPage.GetKPIData)
 		api.GET("/ro_risk_distribution", LandingPage.GetROQRiskDistribution)
 		api.GET("/operator_list", OperatorTab.GetOperatorList)

@@ -2,6 +2,8 @@ package User
 
 import (
 	"net/http"
+	"opt360-portal-backend/db"
+	"opt360-portal-backend/middleware"
 	"github.com/gin-gonic/gin"
 	
 )
@@ -15,5 +17,53 @@ func GetUserInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+// UpdateRORequest represents the request body for updating regional office/group
+type UpdateRORequest struct {
+	Group string `json:"group" binding:"required"`
+}
+
+// UpdateRO updates the group/regional office for a user
+func UpdateRO(c *gin.Context) {
+	var req UpdateRORequest
+
+	// Bind and validate request body
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
+		return
+	}
+
+	// Extract user_id from JWT token (stored in context by auth middleware)
+	claims, exists := c.Get("token_claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Token claims not found in context"})
+		return
+	}
+
+	// Type assert to get the claims
+	tokenClaims, ok := claims.(*middleware.TokenClaims)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse token claims"})
+		return
+	}
+
+	userID := tokenClaims.Sub
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+		return
+	}
+
+	// Update the user's group in the database
+	if err := db.UpdateUserGroup(userID, req.Group); err != nil {
+		if err.Error() == "user not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user group", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "User group updated successfully", "user_id": userID, "group": req.Group})
 }
 
