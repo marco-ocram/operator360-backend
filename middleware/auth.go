@@ -8,6 +8,7 @@ import (
 	"time"
 	"fmt"
     "opt360-portal-backend/auth"
+    "opt360-portal-backend/session"
 	"github.com/gin-gonic/gin"
 )
 
@@ -90,6 +91,13 @@ func AuthMiddleware() gin.HandlerFunc {
 			})
 			c.Abort()
 			return
+		}
+
+		// Check if user has a session-stored regional office override
+		sessionManager := session.GetSessionManager()
+		if sessionRegionalOffice, exists := sessionManager.GetUserRegionalOffice(adID); exists {
+			// Override the user's regional office with session value
+			user.RegionalOffice = sessionRegionalOffice
 		}
 
 		// Attach user to context
