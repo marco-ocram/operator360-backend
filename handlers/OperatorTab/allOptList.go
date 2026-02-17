@@ -55,6 +55,7 @@ func GetOperatorList(c *gin.Context) {
 	optDistrict := c.Query("opt_district") // Filter by district
 	optState := c.Query("opt_state")       // Filter by state
 	optID := c.Query("opt_id")             // Search by operator ID
+	activeStatus := c.Query("active_status") // Filter by active status
 
 	
 	s3Cfg := config.GetDefaultS3Config()
@@ -255,6 +256,49 @@ func GetOperatorList(c *gin.Context) {
 			}
 		}
 
+		// Filter by active status
+		if activeStatus != "" && match {
+			matched := false
+			var expectedValue interface{}
+			
+			// Map string parameter to numeric value
+			if strings.EqualFold(activeStatus, "active") {
+				expectedValue = 1
+			} else if strings.EqualFold(activeStatus, "inactive") {
+				expectedValue = 0
+			} else {
+				// If neither "active" nor "inactive", skip this filter
+				matched = true
+			}
+			
+			if !matched {
+				for key, val := range rowMap {
+					if strings.EqualFold(key, "Active_status") || strings.EqualFold(key, "active_status") {
+						// Convert val to int for comparison
+						switch v := val.(type) {
+						case int:
+							if v == expectedValue {
+								matched = true
+							}
+						case float64:
+							if int(v) == expectedValue {
+								matched = true
+							}
+						case string:
+							if valStr := v; valStr == fmt.Sprintf("%v", expectedValue) {
+								matched = true
+							}
+						}
+						break
+					}
+				}
+			}
+			
+			if !matched {
+				match = false
+			}
+		}
+
 		
 		if match {
 			filteredData = append(filteredData, rowMap)
@@ -303,6 +347,7 @@ func GetOperatorList(c *gin.Context) {
 			"opt_district": optDistrict,
 			"opt_state":    optState,
 			"opt_id":       optID,
+			"active_status": activeStatus,
 		},
 		"count": len(paginatedData),
 		"data":  paginatedData,
