@@ -171,6 +171,51 @@ func UpdateUserGroup(userID string, group string) error {
 	return nil
 }
 
+// InsertMarkAnomaly inserts a new anomaly record into mark_anomaly table
+func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
+	database, err := GetDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return err
+	}
+
+	query := `
+		INSERT INTO ` + "`mark_anomaly`" + ` (
+			eid, anomaly_category, anomaly_code, anomaly_name, error_category,
+			date_created, enrolnment_type, opt_district, opt_state, opt_id,
+			pkt_source, pkt_updt_type, remarks, station_machine_code, station_no
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	log.Printf("Inserting anomaly record for EID: %s", anomaly.EID)
+
+	_, err = database.Exec(query,
+		anomaly.EID,
+		anomaly.AnomalyCategory,
+		anomaly.AnomalyCode,
+		anomaly.AnomalyName,
+		anomaly.ErrorCategory,
+		anomaly.DateCreated,
+		anomaly.EnrolmentType,
+		anomaly.OptDistrict,
+		anomaly.OptState,
+		anomaly.OptID,
+		anomaly.PktSource,
+		anomaly.PktUpdtType,
+		anomaly.Remarks,
+		anomaly.StationMachineCode,
+		anomaly.StationNo,
+	)
+
+	if err != nil {
+		log.Printf("Failed to insert anomaly record for EID '%s': %v", anomaly.EID, err)
+		return fmt.Errorf("failed to insert anomaly: %w", err)
+	}
+
+	log.Printf("Successfully inserted anomaly record for EID: %s", anomaly.EID)
+	return nil
+}
+
 // Close closes the database connection
 func Close() error {
 	if db != nil {

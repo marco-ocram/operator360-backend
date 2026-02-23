@@ -13,6 +13,7 @@ import (
 	"opt360-portal-backend/handlers/AnamolyIndicators"
 	"opt360-portal-backend/handlers/User"
 	"opt360-portal-backend/handlers/RegionEvaluation"
+	"opt360-portal-backend/handlers/Anomaly"
 )
 
 
@@ -42,6 +43,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/anamoly_indicators", AnamolyIndicators.GetAnamolyIndicators)
 		api.GET("/operator_risk_details", OperatorDetailView.GetOperatorRiskDetails)
 		api.GET("/region_evaluation_count", RegionEvaluation.GetRegionEvaluationCount)
+		api.POST("/report_anomaly", Anomaly.ReportAnomaly)
 		
 
 		
