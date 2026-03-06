@@ -56,6 +56,7 @@ func GetOperatorList(c *gin.Context) {
 	optState := c.Query("opt_state")       // Filter by state
 	optID := c.Query("opt_id")             // Search by operator ID
 	activeStatus := c.Query("active_status") // Filter by active status
+	risk := c.Query("risk")                  // Filter by risk level (high, med, low)
 
 	
 	s3Cfg := config.GetDefaultS3Config()
@@ -299,6 +300,40 @@ func GetOperatorList(c *gin.Context) {
 			}
 		}
 
+		// Filter by risk level
+		if risk != "" && match {
+			matched := false
+			for key, val := range rowMap {
+				if strings.EqualFold(key, "Opt_risk_score") || strings.EqualFold(key, "opt_risk_score") {
+					var riskScore float64
+					switch v := val.(type) {
+					case float64:
+						riskScore = v
+					case float32:
+						riskScore = float64(v)
+					case int:
+						riskScore = float64(v)
+					case string:
+						fmt.Sscanf(v, "%f", &riskScore)
+					default:
+						continue
+					}
+					
+					if strings.EqualFold(risk, "high") && riskScore > 0.7 {
+						matched = true
+					} else if strings.EqualFold(risk, "med") && riskScore >= 0.4 && riskScore <= 0.7 {
+						matched = true
+					} else if strings.EqualFold(risk, "low") && riskScore < 0.4 {
+						matched = true
+					}
+					break
+				}
+			}
+			if !matched {
+				match = false
+			}
+		}
+
 		
 		if match {
 			filteredData = append(filteredData, rowMap)
@@ -348,6 +383,7 @@ func GetOperatorList(c *gin.Context) {
 			"opt_state":    optState,
 			"opt_id":       optID,
 			"active_status": activeStatus,
+			"risk":          risk,
 		},
 		"count": len(paginatedData),
 		"data":  paginatedData,
