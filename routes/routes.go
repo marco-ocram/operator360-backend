@@ -31,6 +31,8 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/update_ro", User.UpdateRO)
 		api.GET("/kpi", LandingPage.GetKPIData)
 		api.GET("/ro_risk_distribution", LandingPage.GetROQRiskDistribution)
+		api.POST("/selected_eas", LandingPage.GetSelectedEAs)
+		api.GET("/top10ea", LandingPage.GetTop10EAs)
 		api.GET("/operator_list", OperatorTab.GetOperatorList)
 		api.GET("/high_risk_operator", OperatorTab.GetHighRiskOperators)
 		api.GET("/med_risk_operator", OperatorTab.GetMediumRiskOperators)
