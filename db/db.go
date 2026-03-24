@@ -15,6 +15,10 @@ var (
 	db     *sql.DB
 	dbOnce sync.Once
 	dbErr  error
+
+	uidDB     *sql.DB
+	uidDBOnce sync.Once
+	uidDBErr  error
 )
 
 // DBConfig holds database connection configuration
@@ -65,6 +69,47 @@ func GetDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 	return db, nil
+}
+
+// InitUIDDB initializes the UID database connection
+func InitUIDDB(config DBConfig) error {
+	uidDBOnce.Do(func() {
+		// Use mysql.Config to safely build connection string
+		cfg := mysql.Config{
+			User:                 config.User,
+			Passwd:               config.Password,
+			Net:                  "tcp",
+			Addr:                 fmt.Sprintf("%s:%d", config.Host, config.Port),
+			DBName:               config.Database,
+			AllowNativePasswords: true,
+		}
+
+		uidDB, uidDBErr = sql.Open("mysql", cfg.FormatDSN())
+		if uidDBErr != nil {
+			uidDBErr = fmt.Errorf("failed to open UID database connection: %w", uidDBErr)
+			return
+		}
+
+		// Verify connection
+		if err := uidDB.Ping(); err != nil {
+			uidDBErr = fmt.Errorf("failed to ping UID database: %w", err)
+			uidDB.Close()
+			uidDB = nil
+			return
+		}
+
+		log.Println("UID Database connection established successfully")
+	})
+
+	return uidDBErr
+}
+
+// GetUIDDB returns the UID database connection
+func GetUIDDB() (*sql.DB, error) {
+	if uidDB == nil {
+		return nil, fmt.Errorf("UID database not initialized")
+	}
+	return uidDB, nil
 }
 
 // GetUserByADID retrieves user information from database
@@ -214,6 +259,57 @@ func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
 
 	log.Printf("Successfully inserted anomaly record for EID: %s", anomaly.EID)
 	return nil
+}
+
+// OperatorStatus holds operator status information
+type OperatorStatus struct {
+	UserStatus string `json:"user_status"`
+	UserName   string `json:"user_name"`
+	UserUID    int64  `json:"user_uid"`
+}
+
+// GetOperatorStatusByUserCode retrieves operator status from UID database
+func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
+	database, err := GetUIDDB()
+	if err != nil {
+		log.Printf("UID Database connection error: %v", err)
+		return nil, err
+	}
+
+	query := `
+		SELECT user_status, user_name, user_uid 
+		FROM user 
+		WHERE user_code = ?
+	`
+
+	log.Printf("Querying operator with user_code: %s", userCode)
+
+	var status OperatorStatus
+	var userUID sql.NullInt64
+	err = database.QueryRow(query, userCode).Scan(
+		&status.UserStatus,
+		&status.UserName,
+		&userUID,
+	)
+
+	if err == sql.ErrNoRows {
+		log.Printf("No operator found with user_code: %s", userCode)
+		return nil, fmt.Errorf("operator not found")
+	}
+	if err != nil {
+		log.Printf("Query error for user_code '%s': %v", userCode, err)
+		return nil, fmt.Errorf("failed to query operator: %w", err)
+	}
+
+	// Handle NULL user_uid
+	if userUID.Valid {
+		status.UserUID = userUID.Int64
+	} else {
+		status.UserUID = 0
+	}
+
+	log.Printf("Successfully found operator: %s (Status: %s, UID: %d)", status.UserName, status.UserStatus, status.UserUID)
+	return &status, nil
 }
 
 // Close closes the database connection

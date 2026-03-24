@@ -36,8 +36,9 @@ type Config struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	S3       S3Config       `json:"s3"`
-	Database DatabaseConfig `json:"database"`
+	S3          S3Config       `json:"s3"`
+	Database    DatabaseConfig `json:"database"`
+	UIDDatabase DatabaseConfig `json:"uid_database"`
 }
 
 var (
@@ -77,6 +78,14 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Database.Port == 0 {
 		cfg.Database.Port = 3306 // Default MySQL port
+	}
+
+	// UID Database validation
+	if cfg.UIDDatabase.User == "" || cfg.UIDDatabase.Password == "" || cfg.UIDDatabase.Host == "" {
+		return nil, fmt.Errorf("uid_database 'user', 'password', and 'host' must be set in config file")
+	}
+	if cfg.UIDDatabase.Port == 0 {
+		cfg.UIDDatabase.Port = 3306 // Default MySQL port
 	}
 
 	return &cfg, nil

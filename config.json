@@ -11,10 +11,17 @@
         "region": "us-east-1"
     },
     "database": {
-        "user": "Stg_user_admin",
-        "password": "QS@u5ER#AdM!n151290",
-        "host": "10.10.73.88",
+        "user": "stage_admin",
+        "password": "Stage_admin@123",
+        "host": "10.10.75.181",
         "port": 3306,
         "database": "data_platform"
+    },
+    "uid_database": {
+        "user": "stage_admin",
+        "password": "Stage_admin@123",
+        "host": "10.10.75.181",
+        "port": 3306,
+        "database": "uidmasterv1_1"
     }
 }

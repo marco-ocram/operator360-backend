@@ -33,6 +33,21 @@ func main() {
 
 	fmt.Println("Database connection established")
 
+	// Initialize UID database connection
+	uidDBConfig := db.DBConfig{
+		User:     cfg.UIDDatabase.User,
+		Password: cfg.UIDDatabase.Password,
+		Host:     cfg.UIDDatabase.Host,
+		Port:     cfg.UIDDatabase.Port,
+		Database: cfg.UIDDatabase.Database,
+	}
+
+	if err := db.InitUIDDB(uidDBConfig); err != nil {
+		log.Fatal("Failed to initialize UID database: ", err)
+	}
+
+	fmt.Println("UID Database connection established")
+
 	// Initialize Gin router
 	router := gin.Default()
 

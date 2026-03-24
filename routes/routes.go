@@ -43,6 +43,7 @@ func SetupRoutes(router *gin.Engine) {
         api.GET("/low_risk_operator", OperatorTab.GetLowRiskOperators)
 		api.GET("/operator_details", OperatorDetailView.GetOperatorDetails)
 		api.GET("/operator_features", OperatorDetailView.GetOperatorFeatures)
+		api.POST("/operator_status", OperatorDetailView.GetOperatorStatus)
 		api.GET("/search_operator_packets", SidReview.SearchOperatorPacketsBySID)
 		api.GET("/anamolous_sids", SidReview.GetAnamolousSIDs)
 		api.POST("/feedback", Feedback.SubmitFeedback)
