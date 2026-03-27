@@ -38,6 +38,8 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/top10registrar", LandingPage.GetTop10Registrars)
 		api.GET("/all_registrars", LandingPage.GetAllRegistrars)
 		api.GET("/operator_list", OperatorTab.GetOperatorList)
+		api.GET("/active_operator_list", OperatorTab.GetActiveOperatorList)
+		api.GET("/inactive_operator_list", OperatorTab.GetInactiveOperatorList)
 		api.GET("/high_risk_operator", OperatorTab.GetHighRiskOperators)
 		api.GET("/med_risk_operator", OperatorTab.GetMediumRiskOperators)
         api.GET("/low_risk_operator", OperatorTab.GetLowRiskOperators)

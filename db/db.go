@@ -268,6 +268,17 @@ type OperatorStatus struct {
 	UserUID    int64  `json:"user_uid"`
 }
 
+// ActiveOperator holds active operator information
+type ActiveOperator struct {
+	OptID       string   `json:"opt_id"`
+	UserStatus  int      `json:"user_status"`
+	UserName    string   `json:"user_name"`
+	RiskScore   *float64 `json:"risk_score"`
+	EAOrgName   string   `json:"ea_org_name"`
+	RegOrgName  string   `json:"reg_org_name"`
+	RegROName   string   `json:"reg_ro_name"`
+}
+
 // GetOperatorStatusByUserCode retrieves operator status from UID database
 func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
 	database, err := GetUIDDB()
@@ -310,6 +321,166 @@ func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
 
 	log.Printf("Successfully found operator: %s (Status: %s, UID: %d)", status.UserName, status.UserStatus, status.UserUID)
 	return &status, nil
+}
+
+// GetActiveOperators retrieves active operators from both databases
+func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
+	database, err := GetDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return nil, err
+	}
+
+	query := `
+		SELECT 
+			t1.opt_id,
+			t2.user_status,
+			t2.user_name,
+			t1.risk_score, 
+			t1.reg_org_name,
+			t1.ea_org_name,
+			t1.reg_ro_name
+		FROM data_platform.OptDetails AS t1
+		INNER JOIN uidmasterv1_1.user AS t2 
+			ON t1.opt_id = UPPER(t2.user_code)
+		WHERE t1.reg_ro_name = ?
+			AND t2.user_status = '1'
+	`
+
+	log.Printf("Querying active operators for regional office: %s", regionalOffice)
+
+	rows, err := database.Query(query, regionalOffice)
+	if err != nil {
+		log.Printf("Failed to query active operators: %v", err)
+		return nil, fmt.Errorf("failed to query active operators: %w", err)
+	}
+	defer rows.Close()
+
+	var operators []ActiveOperator
+	for rows.Next() {
+		var op ActiveOperator
+		var userStatus string
+		var riskScore sql.NullFloat64
+		
+		err := rows.Scan(
+			&op.OptID,
+			&userStatus,
+			&op.UserName,
+			&riskScore,
+			&op.RegOrgName,
+			&op.EAOrgName,
+			&op.RegROName,
+		)
+		
+		if err != nil {
+			log.Printf("Failed to scan operator row: %v", err)
+			continue
+		}
+		
+		// Convert user_status string to int
+		if userStatus == "1" {
+			op.UserStatus = 1
+		} else {
+			op.UserStatus = 0
+		}
+		
+		// Handle NULL risk_score
+		if riskScore.Valid {
+			op.RiskScore = &riskScore.Float64
+		} else {
+			op.RiskScore = nil
+		}
+		
+		operators = append(operators, op)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating rows: %v", err)
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	log.Printf("Successfully retrieved %d active operators", len(operators))
+	return operators, nil
+}
+
+// GetInactiveOperators retrieves inactive operators from both databases
+func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
+	database, err := GetDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return nil, err
+	}
+
+	query := `
+		SELECT 
+			t1.opt_id,
+			t2.user_status,
+			t2.user_name,
+			t1.risk_score, 
+			t1.reg_org_name,
+			t1.ea_org_name,
+			t1.reg_ro_name
+		FROM data_platform.OptDetails AS t1
+		INNER JOIN uidmasterv1_1.user AS t2 
+			ON t1.opt_id = UPPER(t2.user_code)
+		WHERE t1.reg_ro_name = ?
+			AND t2.user_status != '1'
+	`
+
+	log.Printf("Querying inactive operators for regional office: %s", regionalOffice)
+
+	rows, err := database.Query(query, regionalOffice)
+	if err != nil {
+		log.Printf("Failed to query inactive operators: %v", err)
+		return nil, fmt.Errorf("failed to query inactive operators: %w", err)
+	}
+	defer rows.Close()
+
+	var operators []ActiveOperator
+	for rows.Next() {
+		var op ActiveOperator
+		var userStatus string
+		var riskScore sql.NullFloat64
+		
+		err := rows.Scan(
+			&op.OptID,
+			&userStatus,
+			&op.UserName,
+			&riskScore,
+			&op.RegOrgName,
+			&op.EAOrgName,
+			&op.RegROName,
+		)
+		
+		if err != nil {
+			log.Printf("Failed to scan operator row: %v", err)
+			continue
+		}
+		
+		// Convert user_status string to int
+		if userStatus == "1" {
+			op.UserStatus = 1
+		} else {
+			op.UserStatus = 0
+		}
+		
+		// Handle NULL risk_score
+		if riskScore.Valid {
+			op.RiskScore = &riskScore.Float64
+		} else {
+			op.RiskScore = nil
+		}
+		
+		operators = append(operators, op)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating rows: %v", err)
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	log.Printf("Successfully retrieved %d inactive operators", len(operators))
+	return operators, nil
 }
 
 // Close closes the database connection
