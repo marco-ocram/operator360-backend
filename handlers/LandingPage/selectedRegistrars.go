@@ -63,8 +63,8 @@ func GetSelectedRegistrars(c *gin.Context) {
 	s3Cfg := config.GetDefaultS3Config()
 
 	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit1.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit1.json"
+	// Format: opt360Store/{RegionalOffice}/audit.json
+	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
@@ -141,8 +141,8 @@ func GetTop10Registrars(c *gin.Context) {
 	s3Cfg := config.GetDefaultS3Config()
 
 	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit1.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit1.json"
+	// Format: opt360Store/{RegionalOffice}/audit.json
+	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
@@ -245,8 +245,8 @@ func GetAllRegistrars(c *gin.Context) {
 	s3Cfg := config.GetDefaultS3Config()
 
 	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit1.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit1.json"
+	// Format: opt360Store/{RegionalOffice}/audit.json
+	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)

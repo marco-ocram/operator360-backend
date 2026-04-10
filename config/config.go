@@ -36,9 +36,10 @@ type Config struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	S3          S3Config       `json:"s3"`
-	Database    DatabaseConfig `json:"database"`
-	UIDDatabase DatabaseConfig `json:"uid_database"`
+	S3             S3Config       `json:"s3"`
+	Database       DatabaseConfig `json:"database"`
+	UIDDatabase    DatabaseConfig `json:"uid_database"`
+	Opt360Database DatabaseConfig `json:"opt360_database"`
 }
 
 var (
@@ -86,6 +87,14 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.UIDDatabase.Port == 0 {
 		cfg.UIDDatabase.Port = 3306 // Default MySQL port
+	}
+
+	// Opt360 Database validation
+	if cfg.Opt360Database.User == "" || cfg.Opt360Database.Password == "" || cfg.Opt360Database.Host == "" {
+		return nil, fmt.Errorf("opt360_database 'user', 'password', and 'host' must be set in config file")
+	}
+	if cfg.Opt360Database.Port == 0 {
+		cfg.Opt360Database.Port = 3306 // Default MySQL port
 	}
 
 	return &cfg, nil

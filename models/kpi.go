@@ -12,6 +12,22 @@ type KPIResponse struct {
 	Top10Operators           []TopOperator      `json:"top_10_opt"`
 }
 
+// RORiskCounts holds per-RO risk bucket counts for /api/ro_risk_dist.
+type RORiskCounts struct {
+	HighRiskCount int `json:"high_risk_count"`
+	MedRiskCount  int `json:"med_risk_count"`
+	LowRiskCount  int `json:"low_risk_count"`
+	NoRiskCount   int `json:"no_risk_count"`
+}
+
+// RORiskDistResponse is the top-level response for /api/ro_risk_dist.
+type RORiskDistResponse struct {
+	Data           map[string]RORiskCounts `json:"data"`
+	File           string                  `json:"file"`
+	RegionalOffice string                  `json:"regional_office"`
+	RequestedBy    string                  `json:"requested_by"`
+}
+
 
 type HighestRiskOperator struct {
 	OptID      string  `json:"opt_id"`

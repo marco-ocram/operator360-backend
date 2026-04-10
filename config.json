@@ -4,7 +4,7 @@
         "port": 8080
     },
     "s3": {
-        "bucket_name": "prd-dsw-bronze-1",
+        "bucket_name": "prd-dsw-bronze-2",
         "access_key": "Z3GDXXKL70ZU5LEU60EC",
         "secret_key": "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
         "endpoint": "http://10.10.103.14:423",
@@ -23,5 +23,12 @@
         "host": "10.10.75.181",
         "port": 3306,
         "database": "uidmasterv1_1"
+    },
+    "opt360_database": {
+        "user": "operator_portal_R",
+        "password": "Opt0rporTal!567",
+        "host": "10.10.106.159",
+        "port": 3306,
+        "database": "operator360"
     }
 }
