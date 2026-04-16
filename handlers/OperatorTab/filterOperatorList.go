@@ -25,7 +25,7 @@ import (
 //   page_size    – records per page (default 20, max 1000)
 //
 // Logic:
-//   • If user_status is absent  → single-table query on operator360.opt_master only.
+//   • If user_status is absent  → single-table query on data_platform.opt_master only.
 //   • If user_status is present → INNER JOIN with uidmasterv1_1.user, all filters applied.
 //   • t1.ro is always implicitly filtered by the logged-in user's RegionalOffice.
 func GetFilteredOperatorList(c *gin.Context) {

@@ -371,7 +371,7 @@ func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
 
 // GetActiveOperators retrieves active operators from both databases
 func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	database, err := GetDB()
+	database, err := GetOpt360DB()
 	if err != nil {
 		log.Printf("Database connection error: %v", err)
 		return nil, err
@@ -386,7 +386,7 @@ func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 			t1.reg_org_name,
 			t1.ea_org_name,
 			t1.reg_ro_name
-		FROM data_platform.OptDetails AS t1
+		FROM operator360.OptDetails AS t1
 		INNER JOIN uidmasterv1_1.user AS t2 
 			ON t1.opt_id = UPPER(t2.user_code)
 		WHERE t1.reg_ro_name = ?
@@ -451,7 +451,7 @@ func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 
 // GetInactiveOperators retrieves inactive operators from both databases
 func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	database, err := GetDB()
+	database, err := GetOpt360DB()
 	if err != nil {
 		log.Printf("Database connection error: %v", err)
 		return nil, err
@@ -466,7 +466,7 @@ func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 			t1.reg_org_name,
 			t1.ea_org_name,
 			t1.reg_ro_name
-		FROM data_platform.OptDetails AS t1
+		FROM operator360.OptDetails AS t1
 		INNER JOIN uidmasterv1_1.user AS t2 
 			ON t1.opt_id = UPPER(t2.user_code)
 		WHERE t1.reg_ro_name = ?

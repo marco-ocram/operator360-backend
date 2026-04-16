@@ -10,7 +10,7 @@ import (
 )
 
 // GetStateDistrict handles GET /api/get_state_district.
-// Returns all distinct states and districts from operator360.opt_master.
+// Returns all distinct states and districts from data_platform.opt_master.
 func GetStateDistrict(c *gin.Context) {
 
 	// ── 1. Auth guard ──────────────────────────────────────────────────────────

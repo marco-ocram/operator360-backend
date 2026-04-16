@@ -21,7 +21,7 @@ var validRiskBuckets = map[string]bool{
 	"No":     true,
 }
 
-// GetOperatorListWithRisk queries operator360.opt_master filtered by risk_bucket.
+// GetOperatorListWithRisk queries data_platform.opt_master filtered by risk_bucket.
 // Required query param : risk_bucket  (Low | Medium | High | No)
 // Optional query params: page (default 1), page_size (default 20, max 1000)
 func GetOperatorListWithRisk(c *gin.Context) {
