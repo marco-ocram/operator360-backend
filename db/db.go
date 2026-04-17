@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/go-sql-driver/mysql"
@@ -369,160 +370,200 @@ func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
 	return &status, nil
 }
 
-// GetActiveOperators retrieves active operators from both databases
+// GetActiveOperators retrieves active operators using an application-level join
+// across the operator360 and uidmasterv1_1 clusters (different DB servers).
 func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	database, err := GetOpt360DB()
+	// Step 1: Query operator360 for all operators in this RO
+	opt360DB, err := GetOpt360DB()
 	if err != nil {
-		log.Printf("Database connection error: %v", err)
+		log.Printf("opt360 DB connection error: %v", err)
 		return nil, err
 	}
 
-	query := `
-		SELECT 
-			t1.opt_id,
-			t2.user_status,
-			t2.user_name,
-			t1.risk_score, 
-			t1.reg_org_name,
-			t1.ea_org_name,
-			t1.reg_ro_name
-		FROM operator360.OptDetails AS t1
-		INNER JOIN uidmasterv1_1.user AS t2 
-			ON t1.opt_id = UPPER(t2.user_code)
-		WHERE t1.reg_ro_name = ?
-			AND t2.user_status = '1'
-	`
-
-	log.Printf("Querying active operators for regional office: %s", regionalOffice)
-
-	rows, err := database.Query(query, regionalOffice)
-	if err != nil {
-		log.Printf("Failed to query active operators: %v", err)
-		return nil, fmt.Errorf("failed to query active operators: %w", err)
+	type optRow struct {
+		optID, regOrgName, eaOrgName, regROName string
+		riskScore *float64
 	}
-	defer rows.Close()
 
-	var operators []ActiveOperator
-	for rows.Next() {
-		var op ActiveOperator
-		var userStatus string
-		var riskScore sql.NullFloat64
-		
-		err := rows.Scan(
-			&op.OptID,
-			&userStatus,
-			&op.UserName,
-			&riskScore,
-			&op.RegOrgName,
-			&op.EAOrgName,
-			&op.RegROName,
-		)
-		
-		if err != nil {
-			log.Printf("Failed to scan operator row: %v", err)
+	optResultRows, err := opt360DB.Query(`
+		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
+		FROM OptDetails
+		WHERE reg_ro_name = ?`, regionalOffice)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query operator details: %w", err)
+	}
+	defer optResultRows.Close()
+
+	var optRows []optRow
+	for optResultRows.Next() {
+		var r optRow
+		var rs sql.NullFloat64
+		if err := optResultRows.Scan(&r.optID, &rs, &r.regOrgName, &r.eaOrgName, &r.regROName); err != nil {
+			log.Printf("Failed to scan opt row: %v", err)
 			continue
 		}
-		
-		// Convert user_status string to int
-		if userStatus == "1" {
-			op.UserStatus = 1
-		} else {
-			op.UserStatus = 0
+		if rs.Valid {
+			v := rs.Float64
+			r.riskScore = &v
 		}
-		
-		// Handle NULL risk_score
-		if riskScore.Valid {
-			op.RiskScore = &riskScore.Float64
-		} else {
-			op.RiskScore = nil
-		}
-		
-		operators = append(operators, op)
+		optRows = append(optRows, r)
+	}
+	if err := optResultRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating opt rows: %w", err)
+	}
+	if len(optRows) == 0 {
+		return []ActiveOperator{}, nil
 	}
 
-	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating rows: %v", err)
-		return nil, fmt.Errorf("error iterating rows: %w", err)
+	// Step 2: Query UID DB for user_status/user_name for these opt_ids
+	uidDB, err := GetUIDDB()
+	if err != nil {
+		log.Printf("UID DB connection error: %v", err)
+		return nil, err
+	}
+
+	ids := make([]interface{}, 0, len(optRows))
+	phs := make([]string, 0, len(optRows))
+	for _, r := range optRows {
+		ids = append(ids, r.optID)
+		phs = append(phs, "?")
+	}
+	uidResultRows, err := uidDB.Query(
+		`SELECT UPPER(user_code), user_status, user_name FROM user WHERE user_code IN (`+strings.Join(phs, ",")+`)`,
+		ids...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query UID users: %w", err)
+	}
+	defer uidResultRows.Close()
+
+	type userInfo struct{ status, name string }
+	userMap := make(map[string]userInfo)
+	for uidResultRows.Next() {
+		var code, status, name string
+		if err := uidResultRows.Scan(&code, &status, &name); err != nil {
+			continue
+		}
+		userMap[code] = userInfo{status, name}
+	}
+
+	// Step 3: Merge — keep only active users (user_status = '1')
+	var operators []ActiveOperator
+	for _, r := range optRows {
+		info, ok := userMap[r.optID]
+		if !ok || info.status != "1" {
+			continue
+		}
+		op := ActiveOperator{
+			OptID:      r.optID,
+			UserStatus: 1,
+			UserName:   info.name,
+			RiskScore:  r.riskScore,
+			RegOrgName: r.regOrgName,
+			EAOrgName:  r.eaOrgName,
+			RegROName:  r.regROName,
+		}
+		operators = append(operators, op)
 	}
 
 	log.Printf("Successfully retrieved %d active operators", len(operators))
 	return operators, nil
 }
 
-// GetInactiveOperators retrieves inactive operators from both databases
+// GetInactiveOperators retrieves inactive operators using an application-level join
+// across the operator360 and uidmasterv1_1 clusters (different DB servers).
 func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	database, err := GetOpt360DB()
+	// Step 1: Query operator360 for all operators in this RO
+	opt360DB, err := GetOpt360DB()
 	if err != nil {
-		log.Printf("Database connection error: %v", err)
+		log.Printf("opt360 DB connection error: %v", err)
 		return nil, err
 	}
 
-	query := `
-		SELECT 
-			t1.opt_id,
-			t2.user_status,
-			t2.user_name,
-			t1.risk_score, 
-			t1.reg_org_name,
-			t1.ea_org_name,
-			t1.reg_ro_name
-		FROM operator360.OptDetails AS t1
-		INNER JOIN uidmasterv1_1.user AS t2 
-			ON t1.opt_id = UPPER(t2.user_code)
-		WHERE t1.reg_ro_name = ?
-			AND t2.user_status != '1'
-	`
-
-	log.Printf("Querying inactive operators for regional office: %s", regionalOffice)
-
-	rows, err := database.Query(query, regionalOffice)
-	if err != nil {
-		log.Printf("Failed to query inactive operators: %v", err)
-		return nil, fmt.Errorf("failed to query inactive operators: %w", err)
+	type optRow struct {
+		optID, regOrgName, eaOrgName, regROName string
+		riskScore *float64
 	}
-	defer rows.Close()
 
-	var operators []ActiveOperator
-	for rows.Next() {
-		var op ActiveOperator
-		var userStatus string
-		var riskScore sql.NullFloat64
-		
-		err := rows.Scan(
-			&op.OptID,
-			&userStatus,
-			&op.UserName,
-			&riskScore,
-			&op.RegOrgName,
-			&op.EAOrgName,
-			&op.RegROName,
-		)
-		
-		if err != nil {
-			log.Printf("Failed to scan operator row: %v", err)
+	optResultRows, err := opt360DB.Query(`
+		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
+		FROM OptDetails
+		WHERE reg_ro_name = ?`, regionalOffice)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query operator details: %w", err)
+	}
+	defer optResultRows.Close()
+
+	var optRows []optRow
+	for optResultRows.Next() {
+		var r optRow
+		var rs sql.NullFloat64
+		if err := optResultRows.Scan(&r.optID, &rs, &r.regOrgName, &r.eaOrgName, &r.regROName); err != nil {
+			log.Printf("Failed to scan opt row: %v", err)
 			continue
 		}
-		
-		// Convert user_status string to int
-		if userStatus == "1" {
-			op.UserStatus = 1
-		} else {
-			op.UserStatus = 0
+		if rs.Valid {
+			v := rs.Float64
+			r.riskScore = &v
 		}
-		
-		// Handle NULL risk_score
-		if riskScore.Valid {
-			op.RiskScore = &riskScore.Float64
-		} else {
-			op.RiskScore = nil
-		}
-		
-		operators = append(operators, op)
+		optRows = append(optRows, r)
+	}
+	if err := optResultRows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating opt rows: %w", err)
+	}
+	if len(optRows) == 0 {
+		return []ActiveOperator{}, nil
 	}
 
-	if err := rows.Err(); err != nil {
-		log.Printf("Error iterating rows: %v", err)
-		return nil, fmt.Errorf("error iterating rows: %w", err)
+	// Step 2: Query UID DB for user_status/user_name for these opt_ids
+	uidDB, err := GetUIDDB()
+	if err != nil {
+		log.Printf("UID DB connection error: %v", err)
+		return nil, err
+	}
+
+	ids := make([]interface{}, 0, len(optRows))
+	phs := make([]string, 0, len(optRows))
+	for _, r := range optRows {
+		ids = append(ids, r.optID)
+		phs = append(phs, "?")
+	}
+	uidResultRows, err := uidDB.Query(
+		`SELECT UPPER(user_code), user_status, user_name FROM user WHERE user_code IN (`+strings.Join(phs, ",")+`)`,
+		ids...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query UID users: %w", err)
+	}
+	defer uidResultRows.Close()
+
+	type userInfo struct{ status, name string }
+	userMap := make(map[string]userInfo)
+	for uidResultRows.Next() {
+		var code, status, name string
+		if err := uidResultRows.Scan(&code, &status, &name); err != nil {
+			continue
+		}
+		userMap[code] = userInfo{status, name}
+	}
+
+	// Step 3: Merge — keep only inactive users (user_status != '1')
+	var operators []ActiveOperator
+	for _, r := range optRows {
+		info, ok := userMap[r.optID]
+		if !ok || info.status == "1" {
+			continue
+		}
+		op := ActiveOperator{
+			OptID:      r.optID,
+			UserStatus: 0,
+			UserName:   info.name,
+			RiskScore:  r.riskScore,
+			RegOrgName: r.regOrgName,
+			EAOrgName:  r.eaOrgName,
+			RegROName:  r.regROName,
+		}
+		operators = append(operators, op)
 	}
 
 	log.Printf("Successfully retrieved %d inactive operators", len(operators))

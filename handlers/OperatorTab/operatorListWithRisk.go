@@ -98,31 +98,27 @@ func GetOperatorListWithRisk(c *gin.Context) {
 		return
 	}
 
-	// ── 6. Fetch paginated rows ────────────────────────────────────────────────
+	// ── 6. Fetch paginated rows from opt_master (no JOIN – separate cluster) ────
 	dataQuery := `
 		SELECT
-			t1.id,
-			t1.uid,
-			t1.name,
-			t1.phone,
-			t1.email,
-			t1.risk_score,
-			t1.risk_bucket,
-			t1.data_path,
-			t1.updated_at,
-			t2.user_status,
-			t2.user_name,
-			t1.reg,
-			t1.ea,
-			t1.district,
-			t1.state,
-			t1.last_sync_timestamp
-		FROM operator360.opt_master AS t1
-		INNER JOIN uidmasterv1_1.user AS t2
-			ON t1.id = UPPER(t2.user_code)
-		WHERE t1.ro = ?
-			AND t1.risk_bucket = ?
-		ORDER BY t1.id
+			id,
+			uid,
+			name,
+			phone,
+			email,
+			risk_score,
+			risk_bucket,
+			data_path,
+			updated_at,
+			reg,
+			ea,
+			district,
+			state,
+			last_sync_timestamp
+		FROM operator360.opt_master
+		WHERE ro = ?
+			AND risk_bucket = ?
+		ORDER BY id
 		LIMIT ? OFFSET ?
 	`
 
@@ -148,8 +144,6 @@ func GetOperatorListWithRisk(c *gin.Context) {
 			riskBucketCol     sql.NullString
 			dataPath          sql.NullString
 			updatedAt         sql.NullTime
-			userStatus        sql.NullString
-			userName          sql.NullString
 			reg               sql.NullString
 			ea                sql.NullString
 			district          sql.NullString
@@ -161,7 +155,6 @@ func GetOperatorListWithRisk(c *gin.Context) {
 			&op.ID, &op.UID, &op.Name, &op.Phone, &op.Email,
 			&riskScore, &riskBucketCol,
 			&dataPath, &updatedAt,
-			&userStatus, &userName,
 			&reg, &ea,
 			&district, &state,
 			&lastSyncTimestamp,
@@ -185,12 +178,6 @@ func GetOperatorListWithRisk(c *gin.Context) {
 		}
 		if updatedAt.Valid {
 			op.UpdatedAt = &updatedAt.Time
-		}
-		if userStatus.Valid {
-			op.UserStatus = &userStatus.String
-		}
-		if userName.Valid {
-			op.UserName = &userName.String
 		}
 		if reg.Valid {
 			op.Reg = &reg.String
@@ -220,7 +207,42 @@ func GetOperatorListWithRisk(c *gin.Context) {
 		})
 		return
 	}
-
+	// ── 9. Enrich with user_status & user_name from UID DB (separate cluster) ───
+	if len(operators) > 0 {
+		if uidDB, enrichErr := db.GetUIDDB(); enrichErr == nil {
+			ids := make([]interface{}, 0, len(operators))
+			phs := make([]string, 0, len(operators))
+			for _, op := range operators {
+				ids = append(ids, op.ID)
+				phs = append(phs, "?")
+			}
+			uidRows, enrichErr := uidDB.Query(
+				`SELECT UPPER(user_code), user_status, user_name FROM user WHERE user_code IN (`+strings.Join(phs, ",")+`)`,
+				ids...,
+			)
+			if enrichErr == nil {
+				defer uidRows.Close()
+				type userInfo struct{ status, name string }
+				userMap := make(map[string]userInfo)
+				for uidRows.Next() {
+					var code, status, name string
+					if uidRows.Scan(&code, &status, &name) == nil {
+						userMap[code] = userInfo{status, name}
+					}
+				}
+				for i, op := range operators {
+					if info, ok := userMap[op.ID]; ok {
+						s := info.status
+						n := info.name
+						operators[i].UserStatus = &s
+						operators[i].UserName = &n
+					}
+				}
+			}
+		} else {
+			log.Printf("[GetOperatorListWithRisk] UID DB enrichment error (non-fatal): %v", enrichErr)
+		}
+	}
 	// ── 9. Calculate total pages ───────────────────────────────────────────────
 	totalPages := total / pageSize
 	if total%pageSize != 0 {
