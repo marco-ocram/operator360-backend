@@ -58,7 +58,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/operator_risk_details", OperatorDetailView.GetOperatorRiskDetails)
 		api.GET("/region_evaluation_count", RegionEvaluation.GetRegionEvaluationCount)
 		api.POST("/report_anomaly", Anomaly.ReportAnomaly)
-		
+		api.GET("/active_opt", OperatorTab.GetActiveOpt)
 
 		
 	}
