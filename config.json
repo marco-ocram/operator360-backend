@@ -23,12 +23,6 @@
         "host": "10.10.75.181",
         "port": 3306,
         "database": "uidmasterv1_1"
-    },
-    "opt360_database": {
-        "user": "operator_portal_R",
-        "password": "Opt0rporTal!567",
-        "host": "10.10.106.159",
-        "port": 3306,
-        "database": "operator360"
     }
+
 }

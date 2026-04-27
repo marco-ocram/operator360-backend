@@ -24,11 +24,11 @@ import (
 //   page         – page number (default 1)
 //   page_size    – records per page (default 20, max 1000)
 //
-// Because opt_master (operator360 cluster) and uidmasterv1_1.user (UID cluster)
+// Because opt_master (data_platform) and uidmasterv1_1.user (UID cluster)
 // are on different database servers, the user_status filter is resolved via an
 // application-level join:
 //   1. Fetch matching user_codes from UID DB cluster
-//   2. Pass them as an IN clause to the opt_master query on operator360 cluster
+//   2. Pass them as an IN clause to the opt_master query on data_platform cluster
 //   3. Enrich each result page with user_status from UID DB
 func GetFilteredOperatorList(c *gin.Context) {
 
@@ -66,7 +66,7 @@ func GetFilteredOperatorList(c *gin.Context) {
 	offset := (page - 1) * pageSize
 
 	// ── 4. opt360 DB connection ────────────────────────────────────────────────
-	opt360DB, err := db.GetOpt360DB()
+	opt360DB, err := db.GetDB()
 	if err != nil {
 		log.Printf("[GetFilteredOperatorList] opt360 DB error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -178,7 +178,7 @@ func GetFilteredOperatorList(c *gin.Context) {
 	}
 
 	whereSQL := "WHERE " + strings.Join(whereClauses, " AND ")
-	fromSQL  := "FROM operator360.opt_master"
+	fromSQL  := "FROM data_platform.opt_master"
 
 	// ── 7. Count total matching rows ───────────────────────────────────────────
 	countQuery := fmt.Sprintf("SELECT COUNT(*) %s %s", fromSQL, whereSQL)

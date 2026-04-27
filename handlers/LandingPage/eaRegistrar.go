@@ -23,7 +23,7 @@ func GetEARegistrar(c *gin.Context) {
 	user := userInterface.(*models.User)
 
 	// ── 2. DB connection ───────────────────────────────────────────────────────
-	database, err := db.GetOpt360DB()
+	database, err := db.GetDB()
 	if err != nil {
 		log.Printf("[GetEARegistrar] DB connection error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -36,7 +36,7 @@ func GetEARegistrar(c *gin.Context) {
 	// ── 3. Query distinct reg/ea pairs for the user's RO ──────────────────────
 	rows, err := database.Query(`
 		SELECT DISTINCT reg, ea
-		FROM operator360.opt_master
+		FROM data_platform.opt_master
 		WHERE ro = ?
 		ORDER BY reg, ea
 	`, user.RegionalOffice)

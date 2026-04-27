@@ -48,21 +48,6 @@ func main() {
 
 	fmt.Println("UID Database connection established")
 
-	// Initialize Operator360 database connection
-	opt360DBConfig := db.DBConfig{
-		User:     cfg.Opt360Database.User,
-		Password: cfg.Opt360Database.Password,
-		Host:     cfg.Opt360Database.Host,
-		Port:     cfg.Opt360Database.Port,
-		Database: cfg.Opt360Database.Database,
-	}
-
-	if err := db.InitOpt360DB(opt360DBConfig); err != nil {
-		log.Fatal("Failed to initialize operator360 database: ", err)
-	}
-
-	fmt.Println("Operator360 Database connection established")
-
 	// Initialize Gin router
 	router := gin.Default()
 

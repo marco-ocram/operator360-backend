@@ -1,6 +1,7 @@
 package LandingPage
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
@@ -40,21 +41,15 @@ func GetRORiskDist(c *gin.Context) {
 	}
 
 	// ── 3. Query all ROs in one pass ───────────────────────────────────────────
-	// SUM(col = 'val') uses MySQL boolean arithmetic (0/1) — faster than CASE.
-	// no_count is derived from COUNT(*) to avoid a 4th conditional per row.
 	query := `
 		SELECT
 			ro,
-			SUM(risk_bucket = 'High')                                    AS high_count,
-			SUM(risk_bucket = 'Medium')                                  AS med_count,
-			SUM(risk_bucket = 'Low')                                     AS low_count,
-			COUNT(*) - SUM(risk_bucket IN ('High', 'Medium', 'Low'))     AS no_count
+			risk_bucket,
+			COUNT(*)
 		FROM data_platform.opt_master
-		WHERE ro IN (
-			'Bangalore', 'Chandigarh', 'Delhi', 'Guwahati',
-			'Hyderabad', 'Lucknow', 'Mumbai', 'Ranchi'
-		)
-		GROUP BY ro
+		WHERE risk_bucket IS NOT NULL
+		GROUP BY ro, risk_bucket
+		ORDER BY ro
 	`
 
 	rows, err := database.Query(query)
@@ -74,11 +69,11 @@ func GetRORiskDist(c *gin.Context) {
 		data[ro] = models.RORiskCounts{}
 	}
 
-	// ── 5. Scan rows ───────────────────────────────────────────────────────────
+	// ── 5. Scan rows — one row per (ro, risk_bucket) pair ─────────────────────
 	for rows.Next() {
-		var ro string
-		var counts models.RORiskCounts
-		if err := rows.Scan(&ro, &counts.HighRiskCount, &counts.MedRiskCount, &counts.LowRiskCount, &counts.NoRiskCount); err != nil {
+		var ro, riskBucket sql.NullString
+		var count int
+		if err := rows.Scan(&ro, &riskBucket, &count); err != nil {
 			log.Printf("[GetRORiskDist] Row scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to process risk distribution record",
@@ -86,7 +81,21 @@ func GetRORiskDist(c *gin.Context) {
 			})
 			return
 		}
-		data[ro] = counts
+		if !ro.Valid || !riskBucket.Valid {
+			continue
+		}
+		counts := data[ro.String]
+		switch riskBucket.String {
+		case "High":
+			counts.HighRiskCount += count
+		case "Medium":
+			counts.MedRiskCount += count
+		case "Low":
+			counts.LowRiskCount += count
+		default:
+			counts.NoRiskCount += count
+		}
+		data[ro.String] = counts
 	}
 
 	if err := rows.Err(); err != nil {

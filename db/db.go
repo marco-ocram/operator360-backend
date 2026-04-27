@@ -20,11 +20,10 @@ var (
 	uidDB     *sql.DB
 	uidDBOnce sync.Once
 	uidDBErr  error
-
-	opt360DB     *sql.DB
-	opt360DBOnce sync.Once
 	opt360DBErr  error
 )
+	
+
 
 // DBConfig holds database connection configuration
 type DBConfig struct {
@@ -117,46 +116,6 @@ func GetUIDDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("UID database not initialized")
 	}
 	return uidDB, nil
-}
-
-// InitOpt360DB initializes the operator360 database connection
-func InitOpt360DB(config DBConfig) error {
-	opt360DBOnce.Do(func() {
-		cfg := mysql.Config{
-			User:                 config.User,
-			Passwd:               config.Password,
-			Net:                  "tcp",
-			Addr:                 fmt.Sprintf("%s:%d", config.Host, config.Port),
-			DBName:               config.Database,
-			AllowNativePasswords: true,
-			ParseTime:            true,
-		}
-
-		opt360DB, opt360DBErr = sql.Open("mysql", cfg.FormatDSN())
-		if opt360DBErr != nil {
-			opt360DBErr = fmt.Errorf("failed to open operator360 database connection: %w", opt360DBErr)
-			return
-		}
-
-		if err := opt360DB.Ping(); err != nil {
-			opt360DBErr = fmt.Errorf("failed to ping operator360 database: %w", err)
-			opt360DB.Close()
-			opt360DB = nil
-			return
-		}
-
-		log.Println("Operator360 Database connection established successfully")
-	})
-
-	return opt360DBErr
-}
-
-// GetOpt360DB returns the operator360 database connection
-func GetOpt360DB() (*sql.DB, error) {
-	if opt360DB == nil {
-		return nil, fmt.Errorf("operator360 database not initialized")
-	}
-	return opt360DB, nil
 }
 
 // GetUserByADID retrieves user information from database
@@ -371,12 +330,12 @@ func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
 }
 
 // GetActiveOperators retrieves active operators using an application-level join
-// across the operator360 and uidmasterv1_1 clusters (different DB servers).
+// across data_platform and uidmasterv1_1.
 func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	// Step 1: Query operator360 for all operators in this RO
-	opt360DB, err := GetOpt360DB()
+	// Step 1: Query data_platform for all operators in this RO
+	database, err := GetDB()
 	if err != nil {
-		log.Printf("opt360 DB connection error: %v", err)
+		log.Printf("DB connection error: %v", err)
 		return nil, err
 	}
 
@@ -385,9 +344,9 @@ func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 		riskScore *float64
 	}
 
-	optResultRows, err := opt360DB.Query(`
+	optResultRows, err := database.Query(`
 		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
-		FROM OptDetails
+		FROM data_platform.OptDetails
 		WHERE reg_ro_name = ?`, regionalOffice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query operator details: %w", err)
@@ -471,12 +430,12 @@ func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 }
 
 // GetInactiveOperators retrieves inactive operators using an application-level join
-// across the operator360 and uidmasterv1_1 clusters (different DB servers).
+// across data_platform and uidmasterv1_1.
 func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	// Step 1: Query operator360 for all operators in this RO
-	opt360DB, err := GetOpt360DB()
+	// Step 1: Query data_platform for all operators in this RO
+	database, err := GetDB()
 	if err != nil {
-		log.Printf("opt360 DB connection error: %v", err)
+		log.Printf("DB connection error: %v", err)
 		return nil, err
 	}
 
@@ -485,9 +444,9 @@ func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 		riskScore *float64
 	}
 
-	optResultRows, err := opt360DB.Query(`
+	optResultRows, err := database.Query(`
 		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
-		FROM OptDetails
+		FROM data_platform.OptDetails
 		WHERE reg_ro_name = ?`, regionalOffice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query operator details: %w", err)
@@ -574,9 +533,6 @@ func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 func Close() error {
 	if db != nil {
 		return db.Close()
-	}
-	if opt360DB != nil {
-		opt360DB.Close()
 	}
 	return nil
 }

@@ -21,7 +21,7 @@ func GetStateDistrict(c *gin.Context) {
 	}
 
 	// ── 2. DB connection ───────────────────────────────────────────────────────
-	database, err := db.GetOpt360DB()
+	database, err := db.GetDB()
 	if err != nil {
 		log.Printf("[GetStateDistrict] DB connection error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -32,7 +32,7 @@ func GetStateDistrict(c *gin.Context) {
 	}
 
 	// ── 3. Fetch distinct states ───────────────────────────────────────────────
-	stateRows, err := database.Query(`SELECT DISTINCT state FROM operator360.opt_master WHERE state IS NOT NULL ORDER BY state`)
+	stateRows, err := database.Query(`SELECT DISTINCT state FROM data_platform.opt_master WHERE state IS NOT NULL ORDER BY state`)
 	if err != nil {
 		log.Printf("[GetStateDistrict] State query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -66,7 +66,7 @@ func GetStateDistrict(c *gin.Context) {
 	}
 
 	// ── 4. Fetch distinct districts ────────────────────────────────────────────
-	districtRows, err := database.Query(`SELECT DISTINCT district FROM operator360.opt_master WHERE district IS NOT NULL ORDER BY district`)
+	districtRows, err := database.Query(`SELECT DISTINCT district FROM data_platform.opt_master WHERE district IS NOT NULL ORDER BY district`)
 	if err != nil {
 		log.Printf("[GetStateDistrict] District query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
