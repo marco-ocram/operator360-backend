@@ -178,7 +178,7 @@ func GetFilteredOperatorList(c *gin.Context) {
 	}
 
 	whereSQL := "WHERE " + strings.Join(whereClauses, " AND ")
-	fromSQL  := "FROM data_platform.opt_master"
+	fromSQL  := "FROM operator360.opt_master"
 
 	// ── 7. Count total matching rows ───────────────────────────────────────────
 	countQuery := fmt.Sprintf("SELECT COUNT(*) %s %s", fromSQL, whereSQL)

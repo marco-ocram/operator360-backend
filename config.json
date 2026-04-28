@@ -4,25 +4,31 @@
         "port": 8080
     },
     "s3": {
-        "bucket_name": "prd-dsw-bronze-2",
-        "access_key": "Z3GDXXKL70ZU5LEU60EC",
-        "secret_key": "ZObwRRwsA5SBwNC84vd0Cs7UYswyBkaJpT6nyBqw",
-        "endpoint": "http://10.10.103.14:423",
+        "bucket_name": "prd-bi-data-platform-feature-operator360-00",
+        "access_key": "9S0KLIQO7T2XCNGH4P4A",
+        "secret_key": "XKlE3EeEQ7MHsvz2O9AXuDEJJDyTFhhCcxSnxtk4",
+        "endpoint": "http://10.10.103.12:425",
         "region": "us-east-1"
     },
-    "database": {
-        "user": "stage_admin",
-        "password": "Stage_admin@123",
-        "host": "10.10.75.181",
+       "database": {
+        "user": "Data_platform_W",
+        "password": "Dataplat_7634",
+        "host": "10.10.108.227",
         "port": 3306,
-        "database": "data_platform"
+        "database": "strot_services"
     },
     "uid_database": {
-        "user": "stage_admin",
-        "password": "Stage_admin@123",
-        "host": "10.10.75.181",
+        "user": "operator_portal_R",
+        "password": "PorOPRator$15",
+        "host": "10.10.108.224",
         "port": 3306,
         "database": "uidmasterv1_1"
+    },
+    "opt360_database": {
+        "user": "operator_portal_R",
+        "password": "PorOPRator$15",
+        "host": "10.10.108.224",
+        "port": 3306,
+        "database": "operator360"
     }
-
 }

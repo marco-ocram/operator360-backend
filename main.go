@@ -17,13 +17,13 @@ func main() {
 		log.Fatal("Failed to load config.json: ", err)
 	}
 
-	// Initialize database connection
+	// Initialize database connection (operator360)
 	dbConfig := db.DBConfig{
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		Host:     cfg.Database.Host,
-		Port:     cfg.Database.Port,
-		Database: cfg.Database.Database,
+		User:     cfg.Opt360Database.User,
+		Password: cfg.Opt360Database.Password,
+		Host:     cfg.Opt360Database.Host,
+		Port:     cfg.Opt360Database.Port,
+		Database: cfg.Opt360Database.Database,
 	}
 
 	if err := db.InitDB(dbConfig); err != nil {

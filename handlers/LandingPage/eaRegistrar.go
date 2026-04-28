@@ -36,7 +36,7 @@ func GetEARegistrar(c *gin.Context) {
 	// ── 3. Query distinct reg/ea pairs for the user's RO ──────────────────────
 	rows, err := database.Query(`
 		SELECT DISTINCT reg, ea
-		FROM data_platform.opt_master
+		FROM operator360.opt_master
 		WHERE ro = ?
 		ORDER BY reg, ea
 	`, user.RegionalOffice)

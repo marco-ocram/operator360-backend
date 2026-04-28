@@ -49,7 +49,7 @@ func GetTop10EAsV1(c *gin.Context) {
 			SUM(CASE WHEN risk_bucket = 'High'   THEN 1 ELSE 0 END) AS high_risk,
 			SUM(CASE WHEN risk_bucket = 'Medium' THEN 1 ELSE 0 END) AS med_risk,
 			SUM(CASE WHEN risk_bucket = 'Low'    THEN 1 ELSE 0 END) AS low_risk
-		FROM data_platform.opt_master
+		FROM operator360.opt_master
 		WHERE ro = ?
 		GROUP BY ea
 		ORDER BY (

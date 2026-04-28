@@ -47,7 +47,7 @@ func GetEaAndReg(c *gin.Context) {
 
 	// ── 4. Build and execute query ─────────────────────────────────────────────
 	// Column name is validated above (only "ea" or "reg"), safe to interpolate.
-	query := "SELECT DISTINCT " + value + " FROM data_platform.opt_master WHERE ro = ? AND " + value + " IS NOT NULL ORDER BY " + value
+	query := "SELECT DISTINCT " + value + " FROM operator360.opt_master WHERE ro = ? AND " + value + " IS NOT NULL ORDER BY " + value
 
 	rows, err := database.Query(query, user.RegionalOffice)
 	if err != nil {

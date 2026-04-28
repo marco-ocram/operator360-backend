@@ -87,7 +87,7 @@ func GetOperatorListWithRisk(c *gin.Context) {
 	}
 
 	// ── 5. Count total matching rows ───────────────────────────────────────────
-	countQuery := `SELECT COUNT(*) FROM data_platform.opt_master WHERE risk_bucket = ? AND ro = ?`
+	countQuery := `SELECT COUNT(*) FROM operator360.opt_master WHERE risk_bucket = ? AND ro = ?`
 	var total int
 	if err := database.QueryRow(countQuery, riskBucket, userRO).Scan(&total); err != nil {
 		log.Printf("[GetOperatorListWithRisk] Count query error: %v", err)
@@ -115,7 +115,7 @@ func GetOperatorListWithRisk(c *gin.Context) {
 			district,
 			state,
 			last_sync_timestamp
-		FROM data_platform.opt_master
+		FROM operator360.opt_master
 		WHERE ro = ?
 			AND risk_bucket = ?
 		ORDER BY id

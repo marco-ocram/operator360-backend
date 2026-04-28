@@ -46,7 +46,7 @@ func GetRORiskDist(c *gin.Context) {
 			ro,
 			risk_bucket,
 			COUNT(*)
-		FROM data_platform.opt_master
+		FROM operator360.opt_master
 		WHERE risk_bucket IS NOT NULL
 		GROUP BY ro, risk_bucket
 		ORDER BY ro
