@@ -21,6 +21,10 @@ var (
 	uidDBOnce sync.Once
 	uidDBErr  error
 	opt360DBErr  error
+
+	portalDB     *sql.DB
+	portalDBOnce sync.Once
+	portalDBErr  error
 )
 	
 
@@ -118,9 +122,48 @@ func GetUIDDB() (*sql.DB, error) {
 	return uidDB, nil
 }
 
+// InitPortalDB initializes the portal (strot_services) database connection
+func InitPortalDB(config DBConfig) error {
+	portalDBOnce.Do(func() {
+		cfg := mysql.Config{
+			User:                 config.User,
+			Passwd:               config.Password,
+			Net:                  "tcp",
+			Addr:                 fmt.Sprintf("%s:%d", config.Host, config.Port),
+			DBName:               config.Database,
+			AllowNativePasswords: true,
+			ParseTime:            true,
+		}
+
+		portalDB, portalDBErr = sql.Open("mysql", cfg.FormatDSN())
+		if portalDBErr != nil {
+			portalDBErr = fmt.Errorf("failed to open portal database connection: %w", portalDBErr)
+			return
+		}
+
+		if err := portalDB.Ping(); err != nil {
+			portalDBErr = fmt.Errorf("failed to ping portal database: %w", err)
+			portalDB.Close()
+			portalDB = nil
+			return
+		}
+
+		log.Println("Portal Database connection established successfully")
+	})
+	return portalDBErr
+}
+
+// GetPortalDB returns the portal (strot_services) database connection
+func GetPortalDB() (*sql.DB, error) {
+	if portalDB == nil {
+		return nil, fmt.Errorf("portal database not initialized")
+	}
+	return portalDB, nil
+}
+
 // GetUserByADID retrieves user information from database
 func GetUserByADID(adID string) (*models.User, error) {
-	database, err := GetDB()
+	database, err := GetPortalDB()
 	if err != nil {
 		log.Printf("Database connection error: %v", err)
 		return nil, err
@@ -157,7 +200,7 @@ func GetUserByADID(adID string) (*models.User, error) {
 
 // GetAllUsers retrieves all users from database
 func GetAllUsers() ([]models.User, error) {
-	database, err := GetDB()
+	database, err := GetPortalDB()
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +234,7 @@ func GetAllUsers() ([]models.User, error) {
 
 // UpdateUserGroup updates the group field for a user identified by user_id
 func UpdateUserGroup(userID string, group string) error {
-	database, err := GetDB()
+	database, err := GetPortalDB()
 	if err != nil {
 		log.Printf("Database connection error: %v", err)
 		return err
@@ -224,7 +267,7 @@ func UpdateUserGroup(userID string, group string) error {
 
 // InsertMarkAnomaly inserts a new anomaly record into mark_anomaly table
 func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
-	database, err := GetDB()
+	database, err := GetPortalDB()
 	if err != nil {
 		log.Printf("Database connection error: %v", err)
 		return err

@@ -48,6 +48,21 @@ func main() {
 
 	fmt.Println("UID Database connection established")
 
+	// Initialize portal database connection (strot_services — user auth)
+	portalDBConfig := db.DBConfig{
+		User:     cfg.Database.User,
+		Password: cfg.Database.Password,
+		Host:     cfg.Database.Host,
+		Port:     cfg.Database.Port,
+		Database: cfg.Database.Database,
+	}
+
+	if err := db.InitPortalDB(portalDBConfig); err != nil {
+		log.Fatal("Failed to initialize portal database: ", err)
+	}
+
+	fmt.Println("Portal Database connection established")
+
 	// Initialize Gin router
 	router := gin.Default()
 
