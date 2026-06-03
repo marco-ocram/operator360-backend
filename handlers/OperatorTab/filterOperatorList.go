@@ -138,12 +138,12 @@ func GetFilteredOperatorList(c *gin.Context) {
 	}
 
 	// ── 6. Build WHERE for opt_master (base filters only – no UID IN clause) ───
-	// When id is provided the ro restriction is skipped (global search).
-	// The UID user_status filter is applied in Go memory (step 7) to avoid
-	// MySQL Error 1390 (too many placeholders) when the UID result set is large.
+	// When id is provided the ro restriction is skipped (global search) 
+	
 	var whereClauses []string
 	var args []interface{}
-	if filterID == "" {
+	// Global ID search is only allowed for admins; all other roles are scoped to their ro.
+	if filterID == "" || strings.ToLower(user.Role) != "admin" {
 		whereClauses = append(whereClauses, "ro = ?")
 		args = append(args, user.RegionalOffice)
 	}
