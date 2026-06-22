@@ -3,24 +3,46 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/routes"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func checkSIDStoreConnectivity(baseURL string, timeoutSeconds int) {
-	client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
-	resp, err := client.Get(baseURL)
+	timeout := time.Duration(timeoutSeconds) * time.Second
+
+	// 1. Is the server reachable? (TCP dial)
+	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		log.Printf("[SID Store] Connectivity check FAILED for %s: %v", baseURL, err)
+		log.Printf("[SID Store] Invalid base URL %q: %v", baseURL, err)
+		return
+	}
+	host := parsed.Host
+	conn, err := net.DialTimeout("tcp", host, timeout)
+	if err != nil {
+		log.Printf("[SID Store] Server UNREACHABLE at %s: %v", host, err)
+	} else {
+		conn.Close()
+		log.Printf("[SID Store] Server reachable at %s", host)
+	}
+
+	// 2. Is the API working? (hit the actual endpoint with a dummy SID)
+	apiURL := strings.TrimRight(baseURL, "/") + "/api/health"
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		log.Printf("[SID Store] API check FAILED for %s: %v", apiURL, err)
 		return
 	}
 	defer resp.Body.Close()
-	log.Printf("[SID Store] Connectivity check OK for %s (HTTP %d)", baseURL, resp.StatusCode)
+	log.Printf("[SID Store] API responding at %s (HTTP %d)", apiURL, resp.StatusCode)
 }
 
 func main() {
