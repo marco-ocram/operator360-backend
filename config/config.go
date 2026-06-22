@@ -30,6 +30,11 @@ type DatabaseConfig struct {
 	Database string `json:"database"`
 }
 
+type SIDStoreConfig struct {
+	BaseURL        string `json:"base_url"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
 // Config holds the entire configuration structure
 type Config struct {
 	Server struct {
@@ -40,6 +45,7 @@ type Config struct {
 	Database        DatabaseConfig `json:"database"`
 	UIDDatabase     DatabaseConfig `json:"uid_database"`
 	Opt360Database  DatabaseConfig `json:"opt360_database"`
+	SIDStore        SIDStoreConfig `json:"sid_store"`
 }
 
 var (
@@ -71,6 +77,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080 
+	}
+	if cfg.SIDStore.BaseURL == "" {
+		cfg.SIDStore.BaseURL = "http://localhost:9001"
+	}
+	if cfg.SIDStore.TimeoutSeconds <= 0 {
+		cfg.SIDStore.TimeoutSeconds = 15
 	}
 	
 	// Database validation

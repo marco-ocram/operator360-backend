@@ -30,5 +30,9 @@
         "host": "10.10.108.224",
         "port": 3306,
         "database": "operator360"
+    },
+    "sid_store": {
+        "base_url": "http://localhost:9001",
+        "timeout_seconds": 15
     }
 }
