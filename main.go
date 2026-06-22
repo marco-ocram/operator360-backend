@@ -3,12 +3,25 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/routes"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+func checkSIDStoreConnectivity(baseURL string, timeoutSeconds int) {
+	client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+	resp, err := client.Get(baseURL)
+	if err != nil {
+		log.Printf("[SID Store] Connectivity check FAILED for %s: %v", baseURL, err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[SID Store] Connectivity check OK for %s (HTTP %d)", baseURL, resp.StatusCode)
+}
 
 func main() {
 	// Load configuration
@@ -62,6 +75,9 @@ func main() {
 	}
 
 	fmt.Println("Portal Database connection established")
+
+	// Non-fatal connectivity check for SID Store
+	checkSIDStoreConnectivity(cfg.SIDStore.BaseURL, cfg.SIDStore.TimeoutSeconds)
 
 	// Initialize Gin router
 	router := gin.Default()
