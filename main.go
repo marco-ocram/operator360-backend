@@ -33,16 +33,20 @@ func checkSIDStoreConnectivity(baseURL string, timeoutSeconds int) {
 		log.Printf("[SID Store] Server reachable at %s", host)
 	}
 
-	// 2. Is the API working? (hit the actual endpoint with a dummy SID)
-	apiURL := strings.TrimRight(baseURL, "/") + "/api/health"
+	// 2. Is the API working? (probe the actual SID endpoint with a dummy value)
+	apiURL := strings.TrimRight(baseURL, "/") + "/api/opt_details/sid/__probe__"
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(apiURL)
 	if err != nil {
-		log.Printf("[SID Store] API check FAILED for %s: %v", apiURL, err)
+		log.Printf("[SID Store] API endpoint UNREACHABLE at %s: %v", apiURL, err)
 		return
 	}
 	defer resp.Body.Close()
-	log.Printf("[SID Store] API responding at %s (HTTP %d)", apiURL, resp.StatusCode)
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[SID Store] API endpoint reachable but SID not found (HTTP 404) — endpoint is live at %s", apiURL)
+	} else {
+		log.Printf("[SID Store] API responding at %s (HTTP %d)", apiURL, resp.StatusCode)
+	}
 }
 
 func main() {
