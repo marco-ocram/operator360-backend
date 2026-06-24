@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"opt360-portal-backend/config"
+	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
-	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -71,9 +71,16 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		return
 	}
 
-	optStateForPath := utils.ToPascalCase(optState)
-	optDistrictForPath := utils.ToPascalCase(optDistrict)
-	roForPath := utils.ToPascalCase(user.RegionalOffice)
+	dataPath, err := db.GetDataPathByOptID(optID)
+	if err != nil {
+		log.Printf("[SearchOperatorPacketsBySID] DataPath lookup failed opt_id=%s user=%s: %v", optID, user.ADID, err)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":       "Operator data path not found",
+			"operator_id": optID,
+			"details":     err.Error(),
+		})
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
 
@@ -84,7 +91,7 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		return
 	}
 
-	filePath := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/sid.parquet"
+	filePath := strings.TrimSuffix(dataPath, "/") + "/sid.parquet"
 
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
