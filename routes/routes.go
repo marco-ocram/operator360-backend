@@ -1,22 +1,21 @@
 package routes
 
 import (
-
 	"opt360-portal-backend/middleware"
 
-	"github.com/gin-gonic/gin"
-	"opt360-portal-backend/handlers/LandingPage"
-	"opt360-portal-backend/handlers/OperatorTab"
-	"opt360-portal-backend/handlers/OperatorDetailView"
-	"opt360-portal-backend/handlers/SidReview"
-	"opt360-portal-backend/handlers/search"
-	"opt360-portal-backend/handlers/Feedback"
 	"opt360-portal-backend/handlers/AnamolyIndicators"
-	"opt360-portal-backend/handlers/User"
-	"opt360-portal-backend/handlers/RegionEvaluation"
 	"opt360-portal-backend/handlers/Anomaly"
-)
+	"opt360-portal-backend/handlers/Feedback"
+	"opt360-portal-backend/handlers/LandingPage"
+	"opt360-portal-backend/handlers/OperatorDetailView"
+	"opt360-portal-backend/handlers/OperatorTab"
+	"opt360-portal-backend/handlers/RegionEvaluation"
+	"opt360-portal-backend/handlers/Search"
+	"opt360-portal-backend/handlers/SidReview"
+	"opt360-portal-backend/handlers/User"
 
+	"github.com/gin-gonic/gin"
+)
 
 func SetupRoutes(router *gin.Engine) {
 
@@ -28,7 +27,7 @@ func SetupRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	api.Use(middleware.AuthMiddleware())
 	{
-	
+
 		api.GET("/user/info", User.GetUserInfo)
 		api.POST("/update_ro", User.UpdateRO)
 		api.GET("/kpi", LandingPage.GetKPIData)
@@ -59,7 +58,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/operator_status", OperatorDetailView.GetOperatorStatus)
 		api.GET("/search_operator_packets", SidReview.SearchOperatorPacketsBySID)
 		api.GET("/anamolous_sids", SidReview.GetAnamolousSIDs)
-		api.POST("/sid/batch_get", search.GetSIDBatchValues)
+		api.POST("/sid/batch_get", Search.GetSIDBatchValues)
 		api.POST("/feedback", Feedback.SubmitFeedback)
 		api.GET("/anamoly_indicators", AnamolyIndicators.GetAnamolyIndicators)
 		api.GET("/operator_risk_details", OperatorDetailView.GetOperatorRiskDetails)
@@ -67,6 +66,5 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/report_anomaly", Anomaly.ReportAnomaly)
 		api.GET("/active_opt", OperatorTab.GetActiveOpt)
 
-		
 	}
 }
