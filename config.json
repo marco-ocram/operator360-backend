@@ -34,5 +34,19 @@
     "sid_store": {
         "base_url": "http://localhost:9001",
         "timeout_seconds": 15
+    },
+    "clickhouse": {
+        "host": "",
+        "port": 9000,
+        "database": "",
+        "username": "",
+        "password": ""
+    },
+    "trino": {
+        "host": "",
+        "port": 8080,
+        "catalog": "",
+        "schema": "",
+        "username": ""
     }
 }

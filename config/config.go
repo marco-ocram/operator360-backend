@@ -43,6 +43,14 @@ type ClickHouseConfig struct {
 	Password string `json:"password"`
 }
 
+type TrinoConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Catalog  string `json:"catalog"`
+	Schema   string `json:"schema"`
+	Username string `json:"username"`
+}
+
 // Config holds the entire configuration structure
 type Config struct {
 	Server struct {
@@ -55,6 +63,7 @@ type Config struct {
 	Opt360Database  DatabaseConfig   `json:"opt360_database"`
 	SIDStore        SIDStoreConfig   `json:"sid_store"`
 	ClickHouse      ClickHouseConfig `json:"clickhouse"`
+	Trino           TrinoConfig      `json:"trino"`
 }
 
 var (
@@ -95,6 +104,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ClickHouse.Port == 0 {
 		cfg.ClickHouse.Port = 9000
+	}
+	if cfg.Trino.Port == 0 {
+		cfg.Trino.Port = 8080
 	}
 	
 	// Database validation

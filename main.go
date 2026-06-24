@@ -115,6 +115,16 @@ func main() {
 	})
 	defer db.CloseClickHouseDB()
 
+	// Non-fatal Trino connection (logs result; server starts regardless)
+	db.InitTrinoDB(db.TrinoConfig{
+		Host:     cfg.Trino.Host,
+		Port:     cfg.Trino.Port,
+		Catalog:  cfg.Trino.Catalog,
+		Schema:   cfg.Trino.Schema,
+		Username: cfg.Trino.Username,
+	})
+	defer db.CloseTrinoDB()
+
 	// Initialize Gin router
 	router := gin.Default()
 
