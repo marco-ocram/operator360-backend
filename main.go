@@ -105,6 +105,16 @@ func main() {
 	// Non-fatal connectivity check for SID Store
 	checkSIDStoreConnectivity(cfg.SIDStore.BaseURL, cfg.SIDStore.TimeoutSeconds)
 
+	// Non-fatal ClickHouse connection (logs result; server starts regardless)
+	db.InitClickHouseDB(db.ClickHouseConfig{
+		Host:     cfg.ClickHouse.Host,
+		Port:     cfg.ClickHouse.Port,
+		Database: cfg.ClickHouse.Database,
+		Username: cfg.ClickHouse.Username,
+		Password: cfg.ClickHouse.Password,
+	})
+	defer db.CloseClickHouseDB()
+
 	// Initialize Gin router
 	router := gin.Default()
 
