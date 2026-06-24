@@ -9,6 +9,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -53,7 +54,7 @@ func GetSelectedRegistrars(c *gin.Context) {
 	}
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -110,7 +111,7 @@ func GetTop10Registrars(c *gin.Context) {
 	user := userInterface.(*models.User)
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -181,7 +182,7 @@ func GetAllRegistrars(c *gin.Context) {
 	user := userInterface.(*models.User)
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {

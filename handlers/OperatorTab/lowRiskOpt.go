@@ -10,6 +10,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -54,7 +55,7 @@ func GetLowRiskOperators(c *gin.Context) {
 
 	// Build file path based on user's regional office
 	// Format: opt360Store/{RegionalOffice}/operator_low.parquet
-	fileName := "opt360Store/" + user.RegionalOffice + "/operator_low.parquet"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/operator_low.parquet"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {

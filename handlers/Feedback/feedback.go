@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -50,10 +50,9 @@ func SubmitFeedback(c *gin.Context) {
 		return
 	}
 
-	// Convert spaces to underscores for S3 path compatibility
-	optStateForPath := strings.ReplaceAll(optState, " ", "_")
-	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
-	optIDForPath := strings.ReplaceAll(optID, " ", "_")
+	roForPath := utils.ToPascalCase(user.RegionalOffice)
+	optStateForPath := utils.ToPascalCase(optState)
+	optDistrictForPath := utils.ToPascalCase(optDistrict)
 
 	s3Cfg := config.GetDefaultS3Config()
 
@@ -65,7 +64,7 @@ func SubmitFeedback(c *gin.Context) {
 	}
 
 	currentDate := time.Now().Format("2006_01_02")
-	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/" + currentDate + "_" + user.ADID + ".json"
+	fileName := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/" + currentDate + "_" + user.ADID + ".json"
 
 	jsonData, err := json.MarshalIndent(feedbackData, "", "  ")
 	if err != nil {

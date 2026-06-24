@@ -10,6 +10,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -29,7 +30,7 @@ func GetAnamolyIndicators(c *gin.Context) {
 
 	s3Cfg := config.GetDefaultS3Config()
 
-	filename := "opt360Store/" + user.RegionalOffice + "/anomalies_insights.json"
+	filename := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/anomalies_insights.json"
 
 
 	s3Client, err := config.NewS3Client(s3Cfg)

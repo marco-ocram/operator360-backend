@@ -12,6 +12,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -70,12 +71,10 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		return
 	}
 
-	// Convert spaces to underscores for S3 path compatibility
-	optStateForPath := strings.ReplaceAll(optState, " ", "_")
-	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
-	optIDForPath := strings.ReplaceAll(optID, " ", "_")
+	optStateForPath := utils.ToPascalCase(optState)
+	optDistrictForPath := utils.ToPascalCase(optDistrict)
+	roForPath := utils.ToPascalCase(user.RegionalOffice)
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
 	s3Client, err := config.NewS3Client(s3Cfg)
@@ -85,7 +84,7 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		return
 	}
 
-	filePath := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/sid.parquet"
+	filePath := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/sid.parquet"
 
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),

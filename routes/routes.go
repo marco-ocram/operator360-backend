@@ -33,6 +33,7 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/ro_risk_distribution", LandingPage.GetROQRiskDistribution)
 		api.GET("/ro_risk_dist", LandingPage.GetRORiskDist)
 		api.GET("/highest_risk_opt", LandingPage.GetHighestRiskOperator)
+		api.GET("/featureAnalysis", LandingPage.GetFeatureAnalysis)
 		api.GET("/get_state_district", LandingPage.GetStateDistrict)
 		api.GET("/get_ea_registrar", LandingPage.GetEARegistrar)
 		api.GET("/geteaandreg", LandingPage.GetEaAndReg)

@@ -11,6 +11,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -64,7 +65,7 @@ func GetOperatorList(c *gin.Context) {
 	s3Cfg := config.GetDefaultS3Config()
 
 
-	fileName := "opt360Store/" + user.RegionalOffice + "/operator.parquet"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/operator.parquet"
 
 
 	s3Client, err := config.NewS3Client(s3Cfg)

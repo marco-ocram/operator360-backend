@@ -5,34 +5,15 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
-
-// toCamelCase converts a string with spaces to PascalCase
-func toCamelCase(s string) string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return s
-	}
-	
-	// If no spaces, return as-is (already formatted)
-	if len(words) == 1 {
-		return s
-	}
-
-	result := ""
-	for _, word := range words {
-		result += strings.Title(strings.ToLower(word))
-	}
-	return result
-}
 
 func GetRegionEvaluationCount(c *gin.Context) {
 	// Get user from context
@@ -57,26 +38,16 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		return
 	}
 
-	// Convert to PascalCase for S3 path
-	regionalOfficeForPath := toCamelCase(regionalOffice)
-
-	// Get S3 configuration
+	roForPath := utils.ToPascalCase(regionalOffice)
 	s3Cfg := config.GetDefaultS3Config()
 
-	// Build file path based on provided parameters
 	var fileName string
 	if optState != "" && optDistrict != "" {
-		// Format: opt360Store/{RegionalOffice}/{State}/{District}/audit.json
-		optStateForPath := toCamelCase(optState)
-		optDistrictForPath := toCamelCase(optDistrict)
-		fileName = "opt360Store/" + regionalOfficeForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/audit.json"
+		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
 	} else if optState != "" {
-		// Format: opt360Store/{RegionalOffice}/{State}/audit.json
-		optStateForPath := toCamelCase(optState)
-		fileName = "opt360Store/" + regionalOfficeForPath + "/" + optStateForPath + "/audit.json"
+		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/audit.json"
 	} else {
-		// Format: opt360Store/{RegionalOffice}/audit.json
-		fileName = "opt360Store/" + regionalOfficeForPath + "/audit.json"
+		fileName = "opt360Store/" + roForPath + "/audit.json"
 	}
 
 	s3Client, err := config.NewS3Client(s3Cfg)

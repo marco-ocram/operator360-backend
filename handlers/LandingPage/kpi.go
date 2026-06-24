@@ -8,6 +8,7 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -29,7 +30,7 @@ func GetKPIData(c *gin.Context) {
 
 	// Build file path based on user's regional office
 	// Format: opt360Store/{RegionalOffice}/kpi.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/kpi.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/kpi.json"
 
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)

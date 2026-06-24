@@ -10,25 +10,12 @@ import (
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
-
-// toCamelCase converts a string with spaces to PascalCase
-func toCamelCaseSid(s string) string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return s
-	}
-	
-	result := ""
-	for _, word := range words {
-		result += strings.Title(strings.ToLower(word))
-	}
-	return result
-}
 
 
 func GetAnamolousSIDs(c *gin.Context) {
@@ -77,17 +64,12 @@ func GetAnamolousSIDs(c *gin.Context) {
 		return
 	}
 
-	// Convert spaces to PascalCase for S3 path compatibility
-	optStateForPath := toCamelCaseSid(optState)
-	optDistrictForPath := toCamelCaseSid(optDistrict)
-	optIDForPath := optID 
+	optStateForPath := utils.ToPascalCase(optState)
+	optDistrictForPath := utils.ToPascalCase(optDistrict)
+	roForPath := utils.ToPascalCase(user.RegionalOffice)
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	
-	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/anomaly_sid.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/anomaly_sid.json"
+	fileName := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/anomaly_sid.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {

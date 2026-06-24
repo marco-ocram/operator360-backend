@@ -5,29 +5,15 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
-
-// toCamelCase converts a string with spaces to PascalCase
-func toCamelCaseRisk(s string) string {
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return s
-	}
-	
-	result := ""
-	for _, word := range words {
-		result += strings.Title(strings.ToLower(word))
-	}
-	return result
-}
 
 
 func GetOperatorRiskDetails(c *gin.Context) {
@@ -53,17 +39,12 @@ func GetOperatorRiskDetails(c *gin.Context) {
 		return
 	}
 
-	
-	optStateForPath := toCamelCaseRisk(optState)
-	optDistrictForPath := toCamelCaseRisk(optDistrict)
-	optIDForPath := optID 
+	optStateForPath := utils.ToPascalCase(optState)
+	optDistrictForPath := utils.ToPascalCase(optDistrict)
+	roForPath := utils.ToPascalCase(user.RegionalOffice)
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	
-	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/opt_details.json
-	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/risk_details.json"
+	fileName := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/risk_details.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
