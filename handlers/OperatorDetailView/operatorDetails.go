@@ -26,15 +26,11 @@ func GetOperatorDetails(c *gin.Context) {
 
 	user := userInterface.(*models.User)
 
-	// Get required query parameters
-	optState := c.Query("opt_state")       // e.g., "Maharashtra"
-	optDistrict := c.Query("opt_district") // e.g., "Sangli"
-	optID := c.Query("opt_id")             // e.g., "MH_WMIT_SN_NS046496"
+	optID := c.Query("opt_id") // e.g., "MH_WMIT_SN_NS046496"
 
-	// Validate required parameters
-	if optState == "" || optDistrict == "" || optID == "" {
+	if optID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_state, opt_district, and opt_id query parameters are required",
+			"error": "opt_id query parameter is required",
 		})
 		return
 	}
@@ -70,8 +66,6 @@ func GetOperatorDetails(c *gin.Context) {
 			"error":           "Operator details file not found",
 			"regional_office": user.RegionalOffice,
 			"operator_id":     optID,
-			"state":           optState,
-			"district":        optDistrict,
 			"file_path":       fileName,
 			"details":         err.Error(),
 		})
@@ -97,8 +91,6 @@ func GetOperatorDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"operator_id":     optID,
-		"state":           optState,
-		"district":        optDistrict,
 		"file":            fileName,
 		"data":            jsonData,
 		"requested_by":    user.ADID,

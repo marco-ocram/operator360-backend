@@ -38,15 +38,12 @@ func SubmitFeedback(c *gin.Context) {
 		return
 	}
 
-	// Get required parameters from request body
-	optState, optStateExists := feedbackData["opt_state"].(string)
-	optDistrict, optDistrictExists := feedbackData["opt_district"].(string)
+	// Get required parameter from request body
 	optID, optIDExists := feedbackData["opt_id"].(string)
 
-	// Validate required parameters
-	if !optStateExists || !optDistrictExists || !optIDExists || optState == "" || optDistrict == "" || optID == "" {
+	if !optIDExists || optID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_state, opt_district, and opt_id are required in request body",
+			"error": "opt_id is required in request body",
 		})
 		return
 	}
@@ -99,8 +96,6 @@ func SubmitFeedback(c *gin.Context) {
 		"message":         "Feedback submitted successfully",
 		"regional_office": user.RegionalOffice,
 		"operator_id":     optID,
-		"state":           optState,
-		"district":        optDistrict,
 		"file_path":       fileName,
 		"date":            currentDate,
 		"submitted_by":    user.ADID,

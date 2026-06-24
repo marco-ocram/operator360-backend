@@ -52,21 +52,17 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		}
 	}
 
-	// Get required query parameters
-	optState := c.Query("opt_state")       // e.g., "Gujarat"
-	optDistrict := c.Query("opt_district") // e.g., "Vadodara"
-	optID := c.Query("opt_id")             // e.g., "GJ_DOP_VDR_NS764416"
-	
+	optID := c.Query("opt_id") // e.g., "GJ_DOP_VDR_NS764416"
+
 	// Get optional filter parameters
 	searchSID := c.Query("sid")            // e.g., "123456789012" (optional)
 	anomalyFilter := c.Query("anomaly_filter") // "anomalous" or "non-anomalous" (optional)
 	enrollmentTypeFilter := c.Query("enrollment_type") // "new_enrollment" or "update" (optional)
 	dateFilter := c.Query("date")          // e.g., "2025-12-25" or "2025_12_25" (optional)
 
-	// Validate required parameters
-	if optState == "" || optDistrict == "" || optID == "" {
+	if optID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_state, opt_district, and opt_id query parameters are required",
+			"error": "opt_id query parameter is required",
 		})
 		return
 	}
@@ -103,8 +99,6 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 			"error":           "Failed to fetch sid.parquet file",
 			"regional_office": user.RegionalOffice,
 			"operator_id":     optID,
-			"state":           optState,
-			"district":        optDistrict,
 			"file_path":       filePath,
 			"details":         err.Error(),
 		})
@@ -371,8 +365,6 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office":        user.RegionalOffice,
 		"operator_id":            optID,
-		"state":                  optState,
-		"district":               optDistrict,
 		"file_path":              filePath,
 		"search_sid":             searchSID,
 		"anomaly_filter":         anomalyFilter,
