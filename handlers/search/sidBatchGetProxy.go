@@ -39,7 +39,7 @@ func GetSIDBatchValues(c *gin.Context) {
 		return
 	}
 
-	log.Printf("[GetSIDBatchValues] Processing %d SID lookups", len(sids))
+	log.Printf("[GetSIDBatchValues] Processing %d SID lookups", len(req.SIDs))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -108,7 +108,7 @@ func GetSIDBatchValues(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(sids))
+	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(req.SIDs))
 	c.JSON(http.StatusOK, gin.H{
 		"success":    successCount == len(req.SIDs),
 		"message":    "SID lookups completed",
