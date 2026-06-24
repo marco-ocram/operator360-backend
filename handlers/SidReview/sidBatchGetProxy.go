@@ -1,4 +1,4 @@
-package search
+package SidReview
 
 import (
 	"encoding/json"
