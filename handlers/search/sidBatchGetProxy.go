@@ -1,4 +1,4 @@
-package search
+package Search
 
 import (
 	"encoding/json"
@@ -27,24 +27,12 @@ type sidLookupResult struct {
 }
 
 func GetSIDBatchValues(c *gin.Context) {
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+	var req sidBatchGetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
 		return
 	}
-
-	var sids []string
-	// Accept both ["sid1","sid2"] and {"sids":["sid1","sid2"]}
-	if err := json.Unmarshal(body, &sids); err != nil {
-		var req sidBatchGetRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
-			return
-		}
-		sids = req.SIDs
-	}
-
-	if len(sids) == 0 {
+	if len(req.SIDs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sids are required"})
 		return
 	}
@@ -57,10 +45,10 @@ func GetSIDBatchValues(c *gin.Context) {
 
 	baseURL := strings.TrimRight(cfg.SIDStore.BaseURL, "/")
 	client := &http.Client{Timeout: time.Duration(cfg.SIDStore.TimeoutSeconds) * time.Second}
-	results := make([]sidLookupResult, len(sids))
+	results := make([]sidLookupResult, len(req.SIDs))
 
 	var wg sync.WaitGroup
-	for i, sid := range sids {
+	for i, sid := range req.SIDs {
 		i, sid := i, strings.TrimSpace(sid)
 		if sid == "" {
 			results[i] = sidLookupResult{SID: sid, Success: false, StatusCode: http.StatusBadRequest, Error: "sid is required"}
@@ -72,6 +60,7 @@ func GetSIDBatchValues(c *gin.Context) {
 			defer wg.Done()
 
 			endpoint := fmt.Sprintf("%s/api/opt_details/sid/%s", baseURL, url.PathEscape(sid))
+
 			upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, endpoint, nil)
 			if err != nil {
 				results[i] = sidLookupResult{SID: sid, Success: false, StatusCode: http.StatusInternalServerError, Error: "failed to create upstream request"}
@@ -116,9 +105,9 @@ func GetSIDBatchValues(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    successCount == len(sids),
+		"success":    successCount == len(req.SIDs),
 		"message":    "SID lookups completed",
-		"requested":  len(sids),
+		"requested":  len(req.SIDs),
 		"successful": successCount,
 		"results":    results,
 	})
