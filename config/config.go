@@ -35,17 +35,26 @@ type SIDStoreConfig struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
+type ClickHouseConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 // Config holds the entire configuration structure
 type Config struct {
 	Server struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	} `json:"server"`
-	S3              S3Config       `json:"s3"`
-	Database        DatabaseConfig `json:"database"`
-	UIDDatabase     DatabaseConfig `json:"uid_database"`
-	Opt360Database  DatabaseConfig `json:"opt360_database"`
-	SIDStore        SIDStoreConfig `json:"sid_store"`
+	S3              S3Config         `json:"s3"`
+	Database        DatabaseConfig   `json:"database"`
+	UIDDatabase     DatabaseConfig   `json:"uid_database"`
+	Opt360Database  DatabaseConfig   `json:"opt360_database"`
+	SIDStore        SIDStoreConfig   `json:"sid_store"`
+	ClickHouse      ClickHouseConfig `json:"clickhouse"`
 }
 
 var (
@@ -83,6 +92,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.SIDStore.TimeoutSeconds <= 0 {
 		cfg.SIDStore.TimeoutSeconds = 15
+	}
+	if cfg.ClickHouse.Port == 0 {
+		cfg.ClickHouse.Port = 9000
 	}
 	
 	// Database validation

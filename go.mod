@@ -3,6 +3,7 @@ module opt360-portal-backend
 go 1.21.1
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.30.0
 	github.com/aws/aws-sdk-go v1.44.327
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-sql-driver/mysql v1.9.3
