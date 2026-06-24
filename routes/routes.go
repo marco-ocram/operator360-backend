@@ -20,8 +20,9 @@ import (
 
 func SetupRoutes(router *gin.Engine) {
 
-	// Apply CORS middleware globally
+	// Apply CORS and request logger globally
 	router.Use(middleware.CORS())
+	router.Use(middleware.RequestLogger())
 
 	// Protected routes - require authentication
 	api := router.Group("/api")

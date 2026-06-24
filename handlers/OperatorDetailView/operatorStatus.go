@@ -1,7 +1,9 @@
 package OperatorDetailView
 
 import (
+	"log"
 	"net/http"
+
 	"opt360-portal-backend/db"
 
 	"github.com/gin-gonic/gin"
@@ -31,24 +33,19 @@ func GetOperatorStatus(c *gin.Context) {
 		return
 	}
 
-	// Get operator status from database
 	status, err := db.GetOperatorStatusByUserCode(req.UserCode)
 	if err != nil {
 		if err.Error() == "operator not found" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":     "Operator not found",
-				"user_code": req.UserCode,
-			})
+			log.Printf("[GetOperatorStatus] Not found user_code=%s", req.UserCode)
+			c.JSON(http.StatusNotFound, gin.H{"error": "Operator not found", "user_code": req.UserCode})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to retrieve operator status",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorStatus] DB error user_code=%s: %v", req.UserCode, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve operator status", "details": err.Error()})
 		return
 	}
 
-	// Return operator status
+	log.Printf("[GetOperatorStatus] Returning status for user_code=%s name=%s", req.UserCode, status.UserName)
 	c.JSON(http.StatusOK, gin.H{
 		"user_status": status.UserStatus,
 		"user_name":   status.UserName,

@@ -1,15 +1,17 @@
-package search
+package Search
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
-	"opt360-portal-backend/config"
 	"strings"
 	"sync"
 	"time"
+
+	"opt360-portal-backend/config"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,6 +50,8 @@ func GetSIDBatchValues(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sids are required"})
 		return
 	}
+
+	log.Printf("[GetSIDBatchValues] Processing %d SID lookups", len(sids))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -115,6 +119,7 @@ func GetSIDBatchValues(c *gin.Context) {
 		}
 	}
 
+	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(sids))
 	c.JSON(http.StatusOK, gin.H{
 		"success":    successCount == len(sids),
 		"message":    "SID lookups completed",

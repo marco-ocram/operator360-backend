@@ -2,7 +2,9 @@ package OperatorTab
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -39,9 +41,9 @@ func GetActiveOperatorList(c *gin.Context) {
 		}
 	}
 
-	// Get active operators from database using user's regional office
 	operators, err := db.GetActiveOperators(user.RegionalOffice)
 	if err != nil {
+		log.Printf("[GetActiveOperatorList] DB error ro=%s: %v", user.RegionalOffice, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":           "Failed to retrieve active operators",
 			"regional_office": user.RegionalOffice,
@@ -75,7 +77,8 @@ func GetActiveOperatorList(c *gin.Context) {
 		paginatedData = operators[startIndex:endIndex]
 	}
 
-	// Return the list of active operators with pagination metadata
+	log.Printf("[GetActiveOperatorList] Returning %d/%d active operators for ro=%s (page %d)",
+		len(paginatedData), totalCount, user.RegionalOffice, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"total_count":     totalCount,

@@ -3,10 +3,12 @@ package RegionEvaluation
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"strings"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -77,53 +79,42 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		fileName = "opt360Store/" + regionalOfficeForPath + "/audit.json"
 	}
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetRegionEvaluationCount] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Download the JSON file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetRegionEvaluationCount] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Audit file not found",
-			"regional_office": regionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Audit file not found", "regional_office": regionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Read JSON data from S3
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetRegionEvaluationCount] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Parse JSON data
 	var jsonData interface{}
 	if err := json.Unmarshal(body, &jsonData); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse JSON data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetRegionEvaluationCount] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse JSON data", "details": err.Error()})
 		return
 	}
 
-	// Return data
+	log.Printf("[GetRegionEvaluationCount] Serving key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": regionalOffice,
 		"opt_state":       optState,

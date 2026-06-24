@@ -1,12 +1,14 @@
 package LandingPage
 
 import (
-	
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -33,6 +35,7 @@ func GetROQRiskDistribution(c *gin.Context) {
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
+		log.Printf("[GetROQRiskDistribution] S3 client error user=%s: %v", user.ADID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create S3 client",
 			"details": err.Error(),
@@ -46,6 +49,7 @@ func GetROQRiskDistribution(c *gin.Context) {
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetROQRiskDistribution] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":     "RO risk distribution file not found",
 			"file_path": fileName,
@@ -58,6 +62,7 @@ func GetROQRiskDistribution(c *gin.Context) {
 	// Read the file content
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
+		log.Printf("[GetROQRiskDistribution] Read body failed key=%s: %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to read file content",
 			"details": err.Error(),
@@ -68,6 +73,7 @@ func GetROQRiskDistribution(c *gin.Context) {
 	// Parse JSON to validate it's valid JSON
 	var jsonData interface{}
 	if err := json.Unmarshal(body, &jsonData); err != nil {
+		log.Printf("[GetROQRiskDistribution] JSON parse failed key=%s: %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Invalid JSON in file",
 			"details": err.Error(),
@@ -75,7 +81,7 @@ func GetROQRiskDistribution(c *gin.Context) {
 		return
 	}
 
-	// Return the JSON content with user info
+	log.Printf("[GetROQRiskDistribution] Serving key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, gin.H{
 		"file":            fileName,
 		"requested_by":    user.ADID,

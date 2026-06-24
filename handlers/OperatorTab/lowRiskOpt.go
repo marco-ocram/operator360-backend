@@ -1,14 +1,16 @@
 package OperatorTab
 
 import (
-
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"fmt"
-	"os"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -54,94 +56,71 @@ func GetLowRiskOperators(c *gin.Context) {
 	// Format: opt360Store/{RegionalOffice}/operator_low.parquet
 	fileName := "opt360Store/" + user.RegionalOffice + "/operator_low.parquet"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetLowRiskOperators] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Download the parquet file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetLowRiskOperators] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Low risk operators file not found",
-			"regional_office": user.RegionalOffice,
-			"file":            fileName,
-			"details":         err.Error(),
+			"error": "Low risk operators file not found", "regional_office": user.RegionalOffice,
+			"file": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Stream parquet data directly from S3 into memory
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetLowRiskOperators] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Create in-memory parquet reader
-		// Write parquetBytes to a temp file
-		tempFile, err := os.CreateTemp("", "parquet_*.parquet")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create temp file",
-				"details": err.Error(),
-			})
-			return
-		}
-		_, err = tempFile.Write(parquetBytes)
-		if err != nil {
-			tempFile.Close()
-			os.Remove(tempFile.Name())
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to write to temp file",
-				"details": err.Error(),
-			})
-			return
-		}
+	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
+	if err != nil {
+		log.Printf("[GetLowRiskOperators] CreateTemp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file", "details": err.Error()})
+		return
+	}
+	if _, err = tempFile.Write(parquetBytes); err != nil {
 		tempFile.Close()
-		defer os.Remove(tempFile.Name())
+		os.Remove(tempFile.Name())
+		log.Printf("[GetLowRiskOperators] Write temp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write to temp file", "details": err.Error()})
+		return
+	}
+	tempFile.Close()
+	defer os.Remove(tempFile.Name())
 
-		fr, err := local.NewLocalFileReader(tempFile.Name())
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to open parquet file",
-				"details": err.Error(),
-			})
-			return
-		}
-		defer fr.Close()
+	fr, err := local.NewLocalFileReader(tempFile.Name())
+	if err != nil {
+		log.Printf("[GetLowRiskOperators] Open parquet error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open parquet file", "details": err.Error()})
+		return
+	}
+	defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create parquet reader",
-			"details": err.Error(),
-		})
+		log.Printf("[GetLowRiskOperators] Parquet reader error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create parquet reader", "details": err.Error()})
 		return
 	}
 	defer pr.ReadStop()
 
 	numRows := int(pr.GetNumRows())
-
-	// Read all data at once using ReadByNumber
 	strs, err := pr.ReadByNumber(numRows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read parquet data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetLowRiskOperators] Read parquet data error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data", "details": err.Error()})
 		return
 	}
 
@@ -180,7 +159,8 @@ func GetLowRiskOperators(c *gin.Context) {
 		paginatedData = allData[startIndex:endIndex]
 	}
 
-	// Return the data as JSON with pagination
+	log.Printf("[GetLowRiskOperators] Returning %d/%d low-risk operators for ro=%s (page %d)",
+		len(paginatedData), totalRecords, user.RegionalOffice, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,

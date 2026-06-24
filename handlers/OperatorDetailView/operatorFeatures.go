@@ -3,10 +3,12 @@ package OperatorDetailView
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"strings"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -61,24 +63,21 @@ func GetOperatorFeatures(c *gin.Context) {
 	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/opt_details.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/operator_features.json"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorFeatures] S3 client error opt_id=%s user=%s: %v", optID, user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Download the JSON file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetOperatorFeatures] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Operator details file not found",
+			"error":           "Operator features file not found",
 			"regional_office": user.RegionalOffice,
 			"operator_id":     optID,
 			"state":           optState,
@@ -90,24 +89,17 @@ func GetOperatorFeatures(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Read JSON data from S3
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorFeatures] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
-	// log.Println("Operator Features JSON Data:", string(body))
 
-	// Parse the original JSON structure
 	var originalData map[string]interface{}
 	if err := json.Unmarshal(body, &originalData); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse JSON data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorFeatures] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse JSON data", "details": err.Error()})
 		return
 	}
 
@@ -133,8 +125,7 @@ func GetOperatorFeatures(c *gin.Context) {
 		}
 	}
 	transformedData["kpis"] = kpisArray
-	// log.Println("Transformed Operator Features Data:", transformedData)
 
-	// Return transformed data
+	log.Printf("[GetOperatorFeatures] Serving key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, transformedData)
 }

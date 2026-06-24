@@ -1,16 +1,18 @@
 package SidReview
 
 import (
-
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+	"time"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"time"
-	"os"
-	"fmt"
-	"strings"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -76,25 +78,21 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] S3 client error opt_id=%s user=%s: %v", optID, user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Build file path: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/sid.parquet
 	filePath := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/sid.parquet"
 
-	// Download parquet file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(filePath),
 	})
 	if err != nil {
+		log.Printf("[SearchOperatorPacketsBySID] S3 fetch failed key=%s user=%s: %v", filePath, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":           "Failed to fetch sid.parquet file",
 			"regional_office": user.RegionalOffice,
@@ -108,69 +106,51 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Read parquet data from S3 response
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read parquet data from S3",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] Read body failed key=%s: %v", filePath, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data from S3", "details": err.Error()})
 		return
 	}
 
-	// Create temporary file to store parquet data
 	tempFile, err := os.CreateTemp("", "sid_*.parquet")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temporary file",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] CreateTemp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temporary file", "details": err.Error()})
 		return
 	}
 	defer os.Remove(tempFile.Name())
 
-	// Write parquet data to temporary file
-	_, err = tempFile.Write(parquetBytes)
-	if err != nil {
+	if _, err = tempFile.Write(parquetBytes); err != nil {
 		tempFile.Close()
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write parquet data to temporary file",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] Write temp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write parquet data to temporary file", "details": err.Error()})
 		return
 	}
 	tempFile.Close()
 
-	// Open parquet file reader
 	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] Open parquet error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open parquet file", "details": err.Error()})
 		return
 	}
 	defer fr.Close()
 
-	// Create parquet reader
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create parquet reader",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] Parquet reader error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create parquet reader", "details": err.Error()})
 		return
 	}
 	defer pr.ReadStop()
 
-	// Read all rows from parquet file
 	numRows := int(pr.GetNumRows())
+	log.Printf("[SearchOperatorPacketsBySID] Loaded %d rows from key=%s user=%s", numRows, filePath, user.ADID)
 	strs, err := pr.ReadByNumber(numRows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read parquet data",
-			"details": err.Error(),
-		})
+		log.Printf("[SearchOperatorPacketsBySID] Read parquet data error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data", "details": err.Error()})
 		return
 	}
 
@@ -380,7 +360,8 @@ func SearchOperatorPacketsBySID(c *gin.Context) {
 		paginatedData = filteredData[startIndex:endIndex]
 	}
 
-	// Return paginated data
+	log.Printf("[SearchOperatorPacketsBySID] Returning %d/%d rows for opt_id=%s user=%s (page %d)",
+		len(paginatedData), totalRecords, optID, user.ADID, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office":        user.RegionalOffice,
 		"operator_id":            optID,
