@@ -572,6 +572,31 @@ func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
 	return operators, nil
 }
 
+// GetDataPathByOptID retrieves the data_path for a single operator from opt_master.
+// This is the source of truth for where an operator's files live in S3 and
+// must be used instead of deriving the path from RO/State/District/OptID.
+func GetDataPathByOptID(optID string) (string, error) {
+	database, err := GetDB()
+	if err != nil {
+		log.Printf("DB connection error: %v", err)
+		return "", err
+	}
+
+	var dataPath sql.NullString
+	err = database.QueryRow(`SELECT data_path FROM opt_master WHERE id = ?`, optID).Scan(&dataPath)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("operator not found: %s", optID)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to query data_path for operator '%s': %w", optID, err)
+	}
+	if !dataPath.Valid || dataPath.String == "" {
+		return "", fmt.Errorf("data_path not set for operator: %s", optID)
+	}
+
+	return dataPath.String, nil
+}
+
 // Close closes the database connection
 func Close() error {
 	if db != nil {

@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"opt360-portal-backend/config"
+	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
-	"opt360-portal-backend/utils"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -50,9 +51,16 @@ func SubmitFeedback(c *gin.Context) {
 		return
 	}
 
-	roForPath := utils.ToPascalCase(user.RegionalOffice)
-	optStateForPath := utils.ToPascalCase(optState)
-	optDistrictForPath := utils.ToPascalCase(optDistrict)
+	dataPath, err := db.GetDataPathByOptID(optID)
+	if err != nil {
+		log.Printf("[SubmitFeedback] DataPath lookup failed opt_id=%s user=%s: %v", optID, user.ADID, err)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":       "Operator data path not found",
+			"operator_id": optID,
+			"details":     err.Error(),
+		})
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
 
@@ -64,7 +72,7 @@ func SubmitFeedback(c *gin.Context) {
 	}
 
 	currentDate := time.Now().Format("2006_01_02")
-	fileName := "opt360Store/" + roForPath + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optID + "/" + currentDate + "_" + user.ADID + ".json"
+	fileName := strings.TrimSuffix(dataPath, "/") + "/" + currentDate + "_" + user.ADID + ".json"
 
 	jsonData, err := json.MarshalIndent(feedbackData, "", "  ")
 	if err != nil {
