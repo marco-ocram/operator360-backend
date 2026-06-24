@@ -29,17 +29,28 @@ type sidLookupResult struct {
 }
 
 func GetSIDBatchValues(c *gin.Context) {
-	var req sidBatchGetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
 		return
 	}
-	if len(req.SIDs) == 0 {
+
+	var sids []string
+	if err := json.Unmarshal(body, &sids); err != nil {
+		var req sidBatchGetRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+			return
+		}
+		sids = req.SIDs
+	}
+
+	if len(sids) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sids are required"})
 		return
 	}
 
-	log.Printf("[GetSIDBatchValues] Processing %d SID lookups", len(req.SIDs))
+	log.Printf("[GetSIDBatchValues] Processing %d SID lookups", len(sids))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -49,10 +60,10 @@ func GetSIDBatchValues(c *gin.Context) {
 
 	baseURL := strings.TrimRight(cfg.SIDStore.BaseURL, "/")
 	client := &http.Client{Timeout: time.Duration(cfg.SIDStore.TimeoutSeconds) * time.Second}
-	results := make([]sidLookupResult, len(req.SIDs))
+	results := make([]sidLookupResult, len(sids))
 
 	var wg sync.WaitGroup
-	for i, sid := range req.SIDs {
+	for i, sid := range sids {
 		i, sid := i, strings.TrimSpace(sid)
 		if sid == "" {
 			results[i] = sidLookupResult{SID: sid, Success: false, StatusCode: http.StatusBadRequest, Error: "sid is required"}
@@ -108,11 +119,11 @@ func GetSIDBatchValues(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(req.SIDs))
+	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(sids))
 	c.JSON(http.StatusOK, gin.H{
-		"success":    successCount == len(req.SIDs),
+		"success":    successCount == len(sids),
 		"message":    "SID lookups completed",
-		"requested":  len(req.SIDs),
+		"requested":  len(sids),
 		"successful": successCount,
 		"results":    results,
 	})
