@@ -1,15 +1,17 @@
 package OperatorTab
 
 import (
-
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"strings"
-	"os"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -67,56 +69,43 @@ func GetOperatorList(c *gin.Context) {
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
-
 
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetOperatorList] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Operator list file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Operator list file not found", "regional_office": user.RegionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	
 	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temp file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] CreateTemp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file", "details": err.Error()})
 		return
 	}
-	_, err = tempFile.Write(parquetBytes)
-	if err != nil {
+	if _, err = tempFile.Write(parquetBytes); err != nil {
 		tempFile.Close()
 		os.Remove(tempFile.Name())
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to write to temp file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] Write temp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write to temp file", "details": err.Error()})
 		return
 	}
 	tempFile.Close()
@@ -124,33 +113,25 @@ func GetOperatorList(c *gin.Context) {
 
 	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] Open parquet error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open parquet file", "details": err.Error()})
 		return
 	}
 	defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create parquet reader",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] Parquet reader error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create parquet reader", "details": err.Error()})
 		return
 	}
 	defer pr.ReadStop()
 
 	numRows := int(pr.GetNumRows())
-
-	// Read all data at once using ReadByNumber
 	strs, err := pr.ReadByNumber(numRows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read parquet data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetOperatorList] Read parquet data error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data", "details": err.Error()})
 		return
 	}
 
@@ -363,6 +344,8 @@ func GetOperatorList(c *gin.Context) {
 	}
 
 
+	log.Printf("[GetOperatorList] Returning %d/%d operators for ro=%s (page %d)",
+		len(paginatedData), totalFiltered, user.RegionalOffice, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,

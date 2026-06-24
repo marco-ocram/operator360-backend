@@ -3,12 +3,15 @@ package middleware
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
-	"fmt"
-    "opt360-portal-backend/auth"
-    "opt360-portal-backend/session"
+
+	"opt360-portal-backend/auth"
+	"opt360-portal-backend/session"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -54,8 +57,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Decode the JWT token
 		claims, err := decodeJWT(token)
 		if err != nil {
+			log.Printf("[Auth] Token decode failed from %s: %v", c.ClientIP(), err)
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":    "Invalid token",
+				"error":   "Invalid token",
 				"details": err.Error(),
 			})
 			c.Abort()
@@ -65,6 +69,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Extract AD ID from the "sub" field
 		adID := claims.Sub
 		if adID == "" {
+			log.Printf("[Auth] Token missing sub claim from %s", c.ClientIP())
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Token does not contain user identifier (sub)",
 			})
@@ -73,8 +78,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		// Validate token expiration
-		if ! isTokenValid(claims) {
-			c.JSON(http.StatusUnauthorized, gin. H{
+		if !isTokenValid(claims) {
+			log.Printf("[Auth] Expired token for sub=%s from %s", adID, c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Token has expired",
 			})
 			c.Abort()
@@ -84,6 +90,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Get user by AD ID
 		user, found := auth.GetUserByADID(adID)
 		if !found {
+			log.Printf("[Auth] AD-ID not found in system: %s from %s", adID, c.ClientIP())
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error":   "User not authorized",
 				"message": "AD-ID not found in system",
@@ -96,13 +103,14 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Check if user has a session-stored regional office override
 		sessionManager := session.GetSessionManager()
 		if sessionRegionalOffice, exists := sessionManager.GetUserRegionalOffice(adID); exists {
-			// Override the user's regional office with session value
 			user.RegionalOffice = sessionRegionalOffice
 		}
 
+		log.Printf("[Auth] Authenticated user=%s role=%s ro=%s", user.ADID, user.Role, user.RegionalOffice)
+
 		// Attach user to context
 		c.Set("user", user)
-		c.Set("token_claims", claims) // Optional: store claims for later use
+		c.Set("token_claims", claims)
 		c.Next()
 	}
 }

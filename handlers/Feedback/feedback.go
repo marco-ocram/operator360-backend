@@ -1,19 +1,19 @@
 package Feedback
 
 import (
-
+	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
+	"strings"
+	"time"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"time"
-	"bytes"
-	"strings"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
-	
-
 )
 
 
@@ -55,37 +55,26 @@ func SubmitFeedback(c *gin.Context) {
 	optDistrictForPath := strings.ReplaceAll(optDistrict, " ", "_")
 	optIDForPath := strings.ReplaceAll(optID, " ", "_")
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[SubmitFeedback] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Generate date for filename (YYYY_MM_DD format)
 	currentDate := time.Now().Format("2006_01_02")
-	
-	// Build file path
-	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/{YYYY_MM_DD}_{ad-id}.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/" + currentDate + "_" + user.ADID + ".json"
 
-	// Convert feedback data to JSON
 	jsonData, err := json.MarshalIndent(feedbackData, "", "  ")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to marshal feedback data to JSON",
-			"details": err.Error(),
-		})
+		log.Printf("[SubmitFeedback] JSON marshal error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to marshal feedback data to JSON", "details": err.Error()})
 		return
 	}
 
-	// Upload JSON file to S3
+	log.Printf("[SubmitFeedback] Uploading feedback key=%s user=%s", fileName, user.ADID)
 	_, err = s3Client.PutObject(&s3.PutObjectInput{
 		Bucket:      aws.String(s3Cfg.BucketName),
 		Key:         aws.String(fileName),
@@ -93,14 +82,12 @@ func SubmitFeedback(c *gin.Context) {
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to upload feedback file to S3",
-			"details": err.Error(),
-		})
+		log.Printf("[SubmitFeedback] S3 upload failed key=%s user=%s: %v", fileName, user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload feedback file to S3", "details": err.Error()})
 		return
 	}
 
-	// Return success response
+	log.Printf("[SubmitFeedback] Feedback stored key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Feedback submitted successfully",
 		"regional_office": user.RegionalOffice,

@@ -1,20 +1,26 @@
 package User
 
 import (
+	"log"
 	"net/http"
+
 	"opt360-portal-backend/middleware"
+	"opt360-portal-backend/models"
 	"opt360-portal-backend/session"
+
 	"github.com/gin-gonic/gin"
 )
 
 // GetUserInfo returns the current user's information and regional office
 func GetUserInfo(c *gin.Context) {
-	user, exists := c.Get("user")
+	u, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 		return
 	}
 
+	user := u.(*models.User)
+	log.Printf("[GetUserInfo] Returning info for user=%s role=%s ro=%s", user.ADID, user.Role, user.RegionalOffice)
 	c.JSON(http.StatusOK, user)
 }
 
@@ -53,10 +59,10 @@ func UpdateRO(c *gin.Context) {
 		return
 	}
 
-	// Store the user's regional office selection in session instead of updating database
 	sessionManager := session.GetSessionManager()
 	sessionManager.SetUserRegionalOffice(userID, req.Group)
 
+	log.Printf("[UpdateRO] Session RO updated for user=%s to group=%s", userID, req.Group)
 	c.JSON(http.StatusOK, gin.H{"message": "User regional office updated for session", "user_id": userID, "group": req.Group})
 }
 

@@ -1,14 +1,16 @@
 package OperatorTab
 
 import (
-
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"os"
+	"strconv"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"strconv"
-	"os"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
@@ -60,59 +62,45 @@ func GetHighRiskOperators(c *gin.Context) {
 	// Format: opt360Store/{RegionalOffice}/operator_high.parquet
 	fileName := "opt360Store/" + user.RegionalOffice + "/operator_high.parquet"
 
-	// Create S3 client
-	s3Client, err := config. NewS3Client(s3Cfg)
+	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":    "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Download the parquet file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket:  aws.String(s3Cfg.BucketName),
+		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetHighRiskOperators] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":            "Parquet file not found",
-			"regional_office":  user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Parquet file not found", "regional_office": user.RegionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Stream parquet data directly from S3 into memory
 	parquetBytes, err := io.ReadAll(result.Body)
 	if err != nil {
-		c. JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Write parquetBytes to a temp file
 	tempFile, err := os.CreateTemp("", "parquet_*.parquet")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create temp file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] CreateTemp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temp file", "details": err.Error()})
 		return
 	}
-	_, err = tempFile. Write(parquetBytes)
-	if err != nil {
+	if _, err = tempFile.Write(parquetBytes); err != nil {
 		tempFile.Close()
 		os.Remove(tempFile.Name())
-		c.JSON(http.StatusInternalServerError, gin. H{
-			"error":   "Failed to write to temp file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] Write temp error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write to temp file", "details": err.Error()})
 		return
 	}
 	tempFile.Close()
@@ -120,33 +108,25 @@ func GetHighRiskOperators(c *gin.Context) {
 
 	fr, err := local.NewLocalFileReader(tempFile.Name())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to open parquet file",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] Open parquet error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open parquet file", "details": err.Error()})
 		return
 	}
 	defer fr.Close()
 
 	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create parquet reader",
-			"details":  err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] Parquet reader error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create parquet reader", "details": err.Error()})
 		return
 	}
 	defer pr.ReadStop()
 
 	numRows := int(pr.GetNumRows())
-
-	// Read all data at once using ReadByNumber
 	strs, err := pr.ReadByNumber(numRows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read parquet data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetHighRiskOperators] Read parquet data error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data", "details": err.Error()})
 		return
 	}
 
@@ -194,7 +174,8 @@ func GetHighRiskOperators(c *gin.Context) {
 		paginatedOperators = allOperators[startIndex:endIndex]
 	}
 
-	// Return the data as JSON with pagination info
+	log.Printf("[GetHighRiskOperators] Returning %d/%d high-risk operators for ro=%s (page %d)",
+		len(paginatedOperators), totalRecords, user.RegionalOffice, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"file":            fileName,

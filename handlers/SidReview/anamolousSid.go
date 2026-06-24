@@ -1,19 +1,19 @@
 package SidReview
 
 import (
-
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
-	"opt360-portal-backend/config"
-	"opt360-portal-backend/models"
 	"strconv"
 	"strings"
+
+	"opt360-portal-backend/config"
+	"opt360-portal-backend/models"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
-
-	
 )
 
 // toCamelCase converts a string with spaces to PascalCase
@@ -89,22 +89,19 @@ func GetAnamolousSIDs(c *gin.Context) {
 	// Format: opt360Store/{RegionalOffice}/{State}/{District}/{OperatorID}/anomaly_sid.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/" + optStateForPath + "/" + optDistrictForPath + "/" + optIDForPath + "/anomaly_sid.json"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetAnamolousSIDs] S3 client error opt_id=%s user=%s: %v", optID, user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Download the JSON file from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetAnamolousSIDs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":           "Anomalous SIDs file not found",
 			"regional_office": user.RegionalOffice,
@@ -118,23 +115,17 @@ func GetAnamolousSIDs(c *gin.Context) {
 	}
 	defer result.Body.Close()
 
-	// Read JSON data from S3
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetAnamolousSIDs] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Parse the nested JSON structure
 	var rawData map[string]interface{}
 	if err := json.Unmarshal(body, &rawData); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse JSON data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetAnamolousSIDs] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse JSON data", "details": err.Error()})
 		return
 	}
 
@@ -205,7 +196,8 @@ func GetAnamolousSIDs(c *gin.Context) {
 		paginatedData = filteredData[startIndex:endIndex]
 	}
 
-	// Return data with pagination
+	log.Printf("[GetAnamolousSIDs] Returning %d/%d anomalous SIDs for opt_id=%s user=%s (page %d)",
+		len(paginatedData), totalRecords, optID, user.ADID, page)
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": user.RegionalOffice,
 		"operator_id":     optID,

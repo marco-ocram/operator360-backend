@@ -1,16 +1,17 @@
 package LandingPage
 
 import (
-	
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
-	
 )
 
 func GetKPIData(c *gin.Context) {
@@ -33,6 +34,7 @@ func GetKPIData(c *gin.Context) {
 	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
+		log.Printf("[GetKPIData] S3 client error user=%s: %v", user.ADID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create S3 client",
 			"details": err.Error(),
@@ -46,6 +48,7 @@ func GetKPIData(c *gin.Context) {
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetKPIData] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":           "KPI file not found",
 			"regional_office": user.RegionalOffice,
@@ -59,6 +62,7 @@ func GetKPIData(c *gin.Context) {
 	// Read the file content
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
+		log.Printf("[GetKPIData] Read body failed key=%s: %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to read file content",
 			"details": err.Error(),
@@ -68,14 +72,15 @@ func GetKPIData(c *gin.Context) {
 
 	var kpiData models.KPIResponse
 	if err := json.Unmarshal(body, &kpiData); err != nil {
+		log.Printf("[GetKPIData] JSON parse failed key=%s: %v", fileName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Invalid JSON in file",
-			"details":  err.Error(),
+			"details": err.Error(),
 		})
 		return
 	}
 
-	// Return the strongly-typed KPI data
+	log.Printf("[GetKPIData] Serving key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, kpiData)
 }
 

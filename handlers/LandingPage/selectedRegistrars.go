@@ -3,10 +3,12 @@ package LandingPage
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"sort"
+
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"sort"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -32,281 +34,196 @@ type AuditDataRegistrar struct {
 }
 
 func GetSelectedRegistrars(c *gin.Context) {
-	// Get user from context (set by auth middleware)
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 		return
 	}
-
 	user := userInterface.(*models.User)
 
-	// Parse request body
 	var req SelectedRegistrarsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+		log.Printf("[GetSelectedRegistrars] Invalid request body user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
 		return
 	}
-
-	// Validate that selected_registrars is not empty
 	if len(req.SelectedRegistrars) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "selected_registrars array cannot be empty",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "selected_registrars array cannot be empty"})
 		return
 	}
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetSelectedRegistrars] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Get the object from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetSelectedRegistrars] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Audit file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Read the response body
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetSelectedRegistrars] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Parse JSON data
 	var auditData AuditDataRegistrar
-	err = json.Unmarshal(body, &auditData)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse audit data",
-			"details": err.Error(),
-		})
+	if err = json.Unmarshal(body, &auditData); err != nil {
+		log.Printf("[GetSelectedRegistrars] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
 		return
 	}
 
-	// Filter reg_distribution based on selected_registrars
 	filteredDistribution := make(map[string]RegistrarDistribution)
 	for _, registrarName := range req.SelectedRegistrars {
-		if distribution, exists := auditData.RegDistribution[registrarName]; exists {
+		if distribution, ok := auditData.RegDistribution[registrarName]; ok {
 			filteredDistribution[registrarName] = distribution
 		}
 	}
 
-	// Return filtered data
-	c.JSON(http.StatusOK, gin.H{
-		"reg_distribution": filteredDistribution,
-	})
+	log.Printf("[GetSelectedRegistrars] Returning %d registrars for user=%s", len(filteredDistribution), user.ADID)
+	c.JSON(http.StatusOK, gin.H{"reg_distribution": filteredDistribution})
 }
 
 func GetTop10Registrars(c *gin.Context) {
-	// Get user from context (set by auth middleware)
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 		return
 	}
-
 	user := userInterface.(*models.User)
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetTop10Registrars] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Get the object from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetTop10Registrars] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Audit file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Read the response body
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetTop10Registrars] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Parse JSON data
 	var auditData AuditDataRegistrar
-	err = json.Unmarshal(body, &auditData)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse audit data",
-			"details": err.Error(),
-		})
+	if err = json.Unmarshal(body, &auditData); err != nil {
+		log.Printf("[GetTop10Registrars] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
 		return
 	}
 
-	// Calculate total risk count for each Registrar
 	type registrarWithTotal struct {
 		name         string
 		distribution RegistrarDistribution
 		totalRisk    int
 	}
-
 	var registrarList []registrarWithTotal
 	for registrarName, distribution := range auditData.RegDistribution {
 		totalRisk := distribution.LowRisk + distribution.MedRisk + distribution.HighRisk
-		registrarList = append(registrarList, registrarWithTotal{
-			name:         registrarName,
-			distribution: distribution,
-			totalRisk:    totalRisk,
-		})
+		registrarList = append(registrarList, registrarWithTotal{name: registrarName, distribution: distribution, totalRisk: totalRisk})
 	}
+	sort.Slice(registrarList, func(i, j int) bool { return registrarList[i].totalRisk > registrarList[j].totalRisk })
 
-	// Sort by total risk in descending order
-	sort.Slice(registrarList, func(i, j int) bool {
-		return registrarList[i].totalRisk > registrarList[j].totalRisk
-	})
-
-	// Get top 10 Registrars (or less if there are fewer than 10)
 	top10Count := 10
 	if len(registrarList) < 10 {
 		top10Count = len(registrarList)
 	}
-
-	// Build the response with reg_distribution structure
 	top10Distribution := make(map[string]RegistrarDistribution)
 	for i := 0; i < top10Count; i++ {
 		top10Distribution[registrarList[i].name] = registrarList[i].distribution
 	}
 
-	// Return top 10 Registrars in reg_distribution format
-	c.JSON(http.StatusOK, gin.H{
-		"reg_distribution": top10Distribution,
-	})
+	log.Printf("[GetTop10Registrars] Returning top %d registrars for user=%s", top10Count, user.ADID)
+	c.JSON(http.StatusOK, gin.H{"reg_distribution": top10Distribution})
 }
 
 func GetAllRegistrars(c *gin.Context) {
-	// Get user from context (set by auth middleware)
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
 		return
 	}
-
 	user := userInterface.(*models.User)
 
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/audit.json
 	fileName := "opt360Store/" + user.RegionalOffice + "/audit.json"
 
-	// Create S3 client
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
+		log.Printf("[GetAllRegistrars] S3 client error user=%s: %v", user.ADID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
 		return
 	}
 
-	// Get the object from S3
 	result, err := s3Client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
 	if err != nil {
+		log.Printf("[GetAllRegistrars] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Audit file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
+			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"file_path": fileName, "details": err.Error(),
 		})
 		return
 	}
 	defer result.Body.Close()
 
-	// Read the response body
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read S3 data",
-			"details": err.Error(),
-		})
+		log.Printf("[GetAllRegistrars] Read body failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
 		return
 	}
 
-	// Parse JSON data
 	var auditData AuditDataRegistrar
-	err = json.Unmarshal(body, &auditData)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to parse audit data",
-			"details": err.Error(),
-		})
+	if err = json.Unmarshal(body, &auditData); err != nil {
+		log.Printf("[GetAllRegistrars] JSON parse failed key=%s: %v", fileName, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
 		return
 	}
 
-	// Extract all Registrar names from the distribution map
 	registrarNames := make([]string, 0, len(auditData.RegDistribution))
 	for registrarName := range auditData.RegDistribution {
 		registrarNames = append(registrarNames, registrarName)
 	}
-
-	// Sort Registrar names alphabetically for consistent ordering in dropdown
 	sort.Strings(registrarNames)
 
-	// Return list of all Registrar names
-	c.JSON(http.StatusOK, gin.H{
-		"registrars": registrarNames,
-		"count":      len(registrarNames),
-	})
+	log.Printf("[GetAllRegistrars] Returning %d registrars for user=%s", len(registrarNames), user.ADID)
+	c.JSON(http.StatusOK, gin.H{"registrars": registrarNames, "count": len(registrarNames)})
 }
