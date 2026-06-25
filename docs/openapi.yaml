@@ -608,6 +608,17 @@ paths:
       summary: Get paginated, filterable operator list (parquet-backed)
       operationId: GetOperatorList
       parameters:
+        - name: RO
+          in: query
+          required: false
+          schema: { type: string }
+          example: Mumbai
+          description: |
+            Overrides the caller's own regional office. Use this when
+            navigating here from a search result (e.g. clicking an operator
+            ID from packet search or feature analysis) where the operator
+            may belong to a different RO than the caller's. Defaults to the
+            caller's regional office if omitted.
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - name: opt_ea
