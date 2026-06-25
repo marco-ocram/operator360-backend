@@ -61,11 +61,17 @@ func GetOperatorList(c *gin.Context) {
 	activeStatus := c.Query("active_status") // Filter by active status
 	risk := c.Query("risk")                  // Filter by risk level (high, med, low)
 
-	
+	// Allow overriding the caller's own RO, e.g. when navigating here from a
+	// search result (packet search, feature analysis) for an operator in a
+	// different regional office.
+	ro := c.Query("RO")
+	if ro == "" {
+		ro = user.RegionalOffice
+	}
+
 	s3Cfg := config.GetDefaultS3Config()
 
-
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/operator.parquet"
+	fileName := "opt360Store/" + utils.ToPascalCase(ro) + "/operator.parquet"
 
 
 	s3Client, err := config.NewS3Client(s3Cfg)
@@ -82,7 +88,7 @@ func GetOperatorList(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetOperatorList] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Operator list file not found", "regional_office": user.RegionalOffice,
+			"error": "Operator list file not found", "regional_office": ro,
 			"file_path": fileName, "details": err.Error(),
 		})
 		return
@@ -346,9 +352,9 @@ func GetOperatorList(c *gin.Context) {
 
 
 	log.Printf("[GetOperatorList] Returning %d/%d operators for ro=%s (page %d)",
-		len(paginatedData), totalFiltered, user.RegionalOffice, page)
+		len(paginatedData), totalFiltered, ro, page)
 	c.JSON(http.StatusOK, gin.H{
-		"regional_office": user.RegionalOffice,
+		"regional_office": ro,
 		"file":            fileName,
 		"total_count":     totalCount,
 		"filtered_count":  totalFiltered,
