@@ -1,85 +1,58 @@
 package AnamolyIndicators
 
-
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"strings"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
-	"opt360-portal-backend/models"
-	"opt360-portal-backend/utils"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
-
 func GetAnamolyIndicators(c *gin.Context) {
-
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return 
+	user, ok := authctx.RequireUser(c)
+	if !ok {
+		return
 	}
-
-	user := userInterface.(*models.User)
 
 	s3Cfg := config.GetDefaultS3Config()
+	key := s3store.OperatorFilePath(user.RegionalOffice, "anomalies_insights.json")
 
-	filename := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/anomalies_insights.json"
-
-
-	s3Client, err := config.NewS3Client(s3Cfg)
+	bodyBytes, err := s3store.FetchBytes(s3Cfg, key)
 	if err != nil {
-		log.Printf("[GetAnamolyIndicators] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
+		if s3store.IsNotFound(err) {
+			log.Printf("[GetAnamolyIndicators] S3 fetch failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusNotFound, "Anomalies insights file not found", err, gin.H{
+				"regional_office": user.RegionalOffice,
+				"file_path":       key,
+			})
+		} else {
+			log.Printf("[GetAnamolyIndicators] Fetch failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to fetch file", err, nil)
+		}
 		return
 	}
 
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(filename),
-	})
-	if err != nil {
-		log.Printf("[GetAnamolyIndicators] S3 fetch failed key=%s user=%s: %v", filename, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Anomalies insights file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       filename,
-			"details":         err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetAnamolyIndicators] Read body failed key=%s: %v", filename, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file content", "details": err.Error()})
-		return
-	}
-
-	bodyStr := strings.ReplaceAll(string(body), "'", "\"")
+	// File uses single quotes in some places; normalize before JSON parsing.
+	bodyStr := strings.ReplaceAll(string(bodyBytes), "'", "\"")
 
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(bodyStr), &jsonData); err != nil {
-		log.Printf("[GetAnamolyIndicators] JSON parse failed key=%s: %v", filename, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Invalid JSON in file", "details": err.Error(), "file_path": filename,
-		})
+		log.Printf("[GetAnamolyIndicators] JSON parse failed key=%s: %v", key, err)
+		respond.Error(c, http.StatusInternalServerError, "Invalid JSON in file", err, gin.H{"file_path": key})
 		return
 	}
 
-	log.Printf("[GetAnamolyIndicators] Serving key=%s user=%s", filename, user.ADID)
-	c.JSON(http.StatusOK, gin.H{
-		"file":            filename,
+	log.Printf("[GetAnamolyIndicators] Serving key=%s user=%s", key, user.ADID)
+	respond.OK(c, gin.H{
+		"file":            key,
 		"requested_by":    user.ADID,
 		"regional_office": user.RegionalOffice,
 		"data":            jsonData,
 	})
-
 }

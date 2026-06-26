@@ -4,36 +4,26 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/db"
-	"opt360-portal-backend/models"
+	"opt360-portal-backend/respond"
 
 	"github.com/gin-gonic/gin"
 )
 
-// GetHighestRiskOperator handles GET /api/highest_risk_opt.
-// Returns the single operator with the highest risk_score for the user's RO.
 func GetHighestRiskOperator(c *gin.Context) {
-
-	// ── 1. Auth guard ──────────────────────────────────────────────────────────
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
-	user := userInterface.(*models.User)
 
-	// ── 2. DB connection ───────────────────────────────────────────────────────
 	database, err := db.GetDB()
 	if err != nil {
 		log.Printf("[GetHighestRiskOperator] DB connection error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Database connection unavailable",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Database connection unavailable", err, nil)
 		return
 	}
 
-	// ── 3. Query ───────────────────────────────────────────────────────────────
 	query := `
 		SELECT id, NAME, risk_score
 		FROM operator360.opt_master
@@ -45,30 +35,21 @@ func GetHighestRiskOperator(c *gin.Context) {
 
 	var id, name string
 	var riskScore float64
-
 	if err := row.Scan(&id, &name, &riskScore); err != nil {
 		log.Printf("[GetHighestRiskOperator] Scan error for ro=%s: %v", user.RegionalOffice, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to retrieve highest risk operator",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Failed to retrieve highest risk operator", err, nil)
 		return
 	}
 
-	// ── 4. High-risk count ─────────────────────────────────────────────────────
 	countQuery := `SELECT COUNT(*) FROM operator360.opt_master WHERE ro = ? AND risk_bucket = 'High'`
 	var highOptCount int
 	if err := database.QueryRow(countQuery, user.RegionalOffice).Scan(&highOptCount); err != nil {
 		log.Printf("[GetHighestRiskOperator] Count scan error for ro=%s: %v", user.RegionalOffice, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to retrieve high risk count",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Failed to retrieve high risk count", err, nil)
 		return
 	}
 
-	// ── 5. Response ────────────────────────────────────────────────────────────
-	c.JSON(http.StatusOK, gin.H{
+	respond.OK(c, gin.H{
 		"regional_office": user.RegionalOffice,
 		"data": gin.H{
 			"id":             id,

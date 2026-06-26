@@ -1,27 +1,23 @@
 package LandingPage
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
-	"opt360-portal-backend/models"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 	"opt360-portal-backend/utils"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
 func GetFeatureAnalysis(c *gin.Context) {
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
-	user := userInterface.(*models.User)
 
 	ro := c.Query("RO")
 	if ro == "" {
@@ -30,48 +26,25 @@ func GetFeatureAnalysis(c *gin.Context) {
 	ro = utils.ToPascalCase(ro)
 
 	s3Cfg := config.GetDefaultS3Config()
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetFeatureAnalysis] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
-		return
-	}
-
-	filePath := "opt360Store/" + ro + "/featureAnalysis.json"
-
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(filePath),
-	})
-	if err != nil {
-		log.Printf("[GetFeatureAnalysis] S3 fetch failed key=%s user=%s: %v", filePath, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Feature analysis file not found",
-			"regional_office": ro,
-			"file_path":       filePath,
-			"details":         err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetFeatureAnalysis] Read body failed key=%s: %v", filePath, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file content", "details": err.Error()})
-		return
-	}
+	key := s3store.OperatorFilePath(ro, "featureAnalysis.json")
 
 	var data interface{}
-	if err := json.Unmarshal(body, &data); err != nil {
-		log.Printf("[GetFeatureAnalysis] JSON parse failed key=%s: %v", filePath, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse feature analysis JSON", "details": err.Error()})
+	if err := s3store.FetchJSON(s3Cfg, key, &data); err != nil {
+		if s3store.IsNotFound(err) {
+			log.Printf("[GetFeatureAnalysis] S3 fetch failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusNotFound, "Feature analysis file not found", err, gin.H{
+				"regional_office": ro,
+				"file_path":       key,
+			})
+		} else {
+			log.Printf("[GetFeatureAnalysis] Parse failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to parse JSON data", err, nil)
+		}
 		return
 	}
 
-	log.Printf("[GetFeatureAnalysis] Serving key=%s user=%s", filePath, user.ADID)
-	c.JSON(http.StatusOK, gin.H{
+	log.Printf("[GetFeatureAnalysis] Serving key=%s user=%s", key, user.ADID)
+	respond.OK(c, gin.H{
 		"regional_office": ro,
 		"requested_by":    user.ADID,
 		"data":            data,

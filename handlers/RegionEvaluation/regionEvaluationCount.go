@@ -1,96 +1,66 @@
 package RegionEvaluation
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
-	"opt360-portal-backend/models"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 	"opt360-portal-backend/utils"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
 func GetRegionEvaluationCount(c *gin.Context) {
-	// Get user from context
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
 
-	user := userInterface.(*models.User)
-
-	// Get required query parameters
 	regionalOffice := c.Query("regional_office")
 	optState := c.Query("opt_state")
 	optDistrict := c.Query("opt_district")
 
-	// Validate required parameter
 	if regionalOffice == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "regional_office query parameter is required",
-		})
+		respond.Error(c, http.StatusBadRequest, "regional_office query parameter is required", nil, nil)
 		return
 	}
 
 	roForPath := utils.ToPascalCase(regionalOffice)
+	var key string
+	if optState != "" && optDistrict != "" {
+		key = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
+	} else if optState != "" {
+		key = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/audit.json"
+	} else {
+		key = "opt360Store/" + roForPath + "/audit.json"
+	}
+
 	s3Cfg := config.GetDefaultS3Config()
 
-	var fileName string
-	if optState != "" && optDistrict != "" {
-		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
-	} else if optState != "" {
-		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/audit.json"
-	} else {
-		fileName = "opt360Store/" + roForPath + "/audit.json"
-	}
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
-		return
-	}
-
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(fileName),
-	})
-	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": regionalOffice,
-			"file_path": fileName, "details": err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
-		return
-	}
-
 	var jsonData interface{}
-	if err := json.Unmarshal(body, &jsonData); err != nil {
-		log.Printf("[GetRegionEvaluationCount] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse JSON data", "details": err.Error()})
+	if err := s3store.FetchJSON(s3Cfg, key, &jsonData); err != nil {
+		if s3store.IsNotFound(err) {
+			log.Printf("[GetRegionEvaluationCount] S3 fetch failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusNotFound, "Audit file not found", err, gin.H{
+				"regional_office": regionalOffice,
+				"file_path":       key,
+			})
+		} else {
+			log.Printf("[GetRegionEvaluationCount] Parse failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to parse JSON data", err, nil)
+		}
 		return
 	}
 
-	log.Printf("[GetRegionEvaluationCount] Serving key=%s user=%s", fileName, user.ADID)
-	c.JSON(http.StatusOK, gin.H{
+	log.Printf("[GetRegionEvaluationCount] Serving key=%s user=%s", key, user.ADID)
+	respond.OK(c, gin.H{
 		"regional_office": regionalOffice,
 		"opt_state":       optState,
 		"opt_district":    optDistrict,
-		"file":            fileName,
+		"file":            key,
 		"data":            jsonData,
 		"requested_by":    user.ADID,
 	})

@@ -1,27 +1,22 @@
 package LandingPage
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 	"sort"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
-	"opt360-portal-backend/models"
-	"opt360-portal-backend/utils"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
-// Request structure for selected EAs
 type SelectedEAsRequest struct {
 	SelectedEAs []string `json:"selected_eas" binding:"required"`
 }
 
-// EA distribution structure
 type EADistribution struct {
 	HighRisk int `json:"high_risk"`
 	MedRisk  int `json:"med_risk"`
@@ -29,122 +24,72 @@ type EADistribution struct {
 	NoRisk   int `json:"no_risk"`
 }
 
-// Audit data structure
 type AuditData struct {
 	EADistribution map[string]EADistribution `json:"ea_distribution"`
 }
 
+func loadAuditData(c *gin.Context, logPrefix, regionalOffice, adID string) (AuditData, bool) {
+	s3Cfg := config.GetDefaultS3Config()
+	key := s3store.OperatorFilePath(regionalOffice, "audit.json")
+
+	var auditData AuditData
+	if err := s3store.FetchJSON(s3Cfg, key, &auditData); err != nil {
+		if s3store.IsNotFound(err) {
+			log.Printf("%s S3 fetch failed key=%s user=%s: %v", logPrefix, key, adID, err)
+			respond.Error(c, http.StatusNotFound, "Audit file not found", err, gin.H{
+				"regional_office": regionalOffice,
+				"file_path":       key,
+			})
+		} else {
+			log.Printf("%s Parse failed key=%s user=%s: %v", logPrefix, key, adID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to parse audit data", err, nil)
+		}
+		return AuditData{}, false
+	}
+	return auditData, true
+}
+
 func GetSelectedEAs(c *gin.Context) {
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
-	user := userInterface.(*models.User)
 
 	var req SelectedEAsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("[GetSelectedEAs] Invalid request body user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body", "details": err.Error()})
+		respond.Error(c, http.StatusBadRequest, "Invalid request body", err, nil)
 		return
 	}
 	if len(req.SelectedEAs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "selected_eas array cannot be empty"})
+		respond.Error(c, http.StatusBadRequest, "selected_eas array cannot be empty", nil, nil)
 		return
 	}
 
-	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetSelectedEAs] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
-		return
-	}
-
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(fileName),
-	})
-	if err != nil {
-		log.Printf("[GetSelectedEAs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
-			"file_path": fileName, "details": err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetSelectedEAs] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
-		return
-	}
-
-	var auditData AuditData
-	if err = json.Unmarshal(body, &auditData); err != nil {
-		log.Printf("[GetSelectedEAs] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
+	auditData, ok := loadAuditData(c, "[GetSelectedEAs]", user.RegionalOffice, user.ADID)
+	if !ok {
 		return
 	}
 
 	filteredDistribution := make(map[string]EADistribution)
 	for _, eaName := range req.SelectedEAs {
-		if distribution, ok := auditData.EADistribution[eaName]; ok {
+		if distribution, exists := auditData.EADistribution[eaName]; exists {
 			filteredDistribution[eaName] = distribution
 		}
 	}
 
 	log.Printf("[GetSelectedEAs] Returning %d EAs for user=%s", len(filteredDistribution), user.ADID)
-	c.JSON(http.StatusOK, gin.H{"ea_distribution": filteredDistribution})
+	respond.OK(c, gin.H{"ea_distribution": filteredDistribution})
 }
 
 func GetTop10EAs(c *gin.Context) {
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return
-	}
-	user := userInterface.(*models.User)
-
-	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetTop10EAs] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
 
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(fileName),
-	})
-	if err != nil {
-		log.Printf("[GetTop10EAs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
-			"file_path": fileName, "details": err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetTop10EAs] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
-		return
-	}
-
-	var auditData AuditData
-	if err = json.Unmarshal(body, &auditData); err != nil {
-		log.Printf("[GetTop10EAs] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
+	auditData, ok := loadAuditData(c, "[GetTop10EAs]", user.RegionalOffice, user.ADID)
+	if !ok {
 		return
 	}
 
@@ -153,72 +98,34 @@ func GetTop10EAs(c *gin.Context) {
 		distribution EADistribution
 		totalRisk    int
 	}
-
 	var eaList []eaWithTotal
 	for eaName, distribution := range auditData.EADistribution {
 		totalRisk := distribution.LowRisk + distribution.MedRisk + distribution.HighRisk
 		eaList = append(eaList, eaWithTotal{name: eaName, distribution: distribution, totalRisk: totalRisk})
 	}
-
 	sort.Slice(eaList, func(i, j int) bool { return eaList[i].totalRisk > eaList[j].totalRisk })
 
 	top10Count := 10
 	if len(eaList) < 10 {
 		top10Count = len(eaList)
 	}
-
 	top10Distribution := make(map[string]EADistribution)
 	for i := 0; i < top10Count; i++ {
 		top10Distribution[eaList[i].name] = eaList[i].distribution
 	}
 
 	log.Printf("[GetTop10EAs] Returning top %d EAs for user=%s", top10Count, user.ADID)
-	c.JSON(http.StatusOK, gin.H{"ea_distribution": top10Distribution})
+	respond.OK(c, gin.H{"ea_distribution": top10Distribution})
 }
 
 func GetAllEAs(c *gin.Context) {
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return
-	}
-	user := userInterface.(*models.User)
-
-	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetAllEAs] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
 
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(fileName),
-	})
-	if err != nil {
-		log.Printf("[GetAllEAs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
-			"file_path": fileName, "details": err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetAllEAs] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
-		return
-	}
-
-	var auditData AuditData
-	if err = json.Unmarshal(body, &auditData); err != nil {
-		log.Printf("[GetAllEAs] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse audit data", "details": err.Error()})
+	auditData, ok := loadAuditData(c, "[GetAllEAs]", user.RegionalOffice, user.ADID)
+	if !ok {
 		return
 	}
 
@@ -229,5 +136,5 @@ func GetAllEAs(c *gin.Context) {
 	sort.Strings(eaNames)
 
 	log.Printf("[GetAllEAs] Returning %d EAs for user=%s", len(eaNames), user.ADID)
-	c.JSON(http.StatusOK, gin.H{"eas": eaNames, "count": len(eaNames)})
+	respond.OK(c, gin.H{"eas": eaNames, "count": len(eaNames)})
 }

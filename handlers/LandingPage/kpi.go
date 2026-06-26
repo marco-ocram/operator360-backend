@@ -1,88 +1,42 @@
 package LandingPage
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
-	"opt360-portal-backend/utils"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
 func GetKPIData(c *gin.Context) {
-	// Get user from context (set by auth middleware)
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
 
-	user := userInterface.(*models.User)
-
-	// Get S3 configuration
 	s3Cfg := config.GetDefaultS3Config()
-
-	// Build file path based on user's regional office
-	// Format: opt360Store/{RegionalOffice}/kpi.json
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/kpi.json"
-
-	// Create S3 client
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetKPIData] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to create S3 client",
-			"details": err.Error(),
-		})
-		return
-	}
-
-	// Get the object from S3
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(fileName),
-	})
-	if err != nil {
-		log.Printf("[GetKPIData] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "KPI file not found",
-			"regional_office": user.RegionalOffice,
-			"file_path":       fileName,
-			"details":         err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	// Read the file content
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[GetKPIData] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to read file content",
-			"details": err.Error(),
-		})
-		return
-	}
+	key := s3store.OperatorFilePath(user.RegionalOffice, "kpi.json")
 
 	var kpiData models.KPIResponse
-	if err := json.Unmarshal(body, &kpiData); err != nil {
-		log.Printf("[GetKPIData] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Invalid JSON in file",
-			"details": err.Error(),
-		})
+	if err := s3store.FetchJSON(s3Cfg, key, &kpiData); err != nil {
+		if s3store.IsNotFound(err) {
+			log.Printf("[GetKPIData] S3 fetch failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusNotFound, "KPI file not found", err, gin.H{
+				"regional_office": user.RegionalOffice,
+				"file_path":       key,
+			})
+		} else {
+			log.Printf("[GetKPIData] Parse failed key=%s user=%s: %v", key, user.ADID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to parse JSON data", err, nil)
+		}
 		return
 	}
 
-	log.Printf("[GetKPIData] Serving key=%s user=%s", fileName, user.ADID)
+	log.Printf("[GetKPIData] Serving key=%s user=%s", key, user.ADID)
 	c.JSON(http.StatusOK, kpiData)
 }
-
-

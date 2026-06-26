@@ -1,385 +1,229 @@
 package SidReview
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
-	"opt360-portal-backend/models"
+	"opt360-portal-backend/pageparam"
+	"opt360-portal-backend/respond"
+	"opt360-portal-backend/s3store"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
-	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/reader"
 )
 
+type searchFilters struct {
+	sid            string
+	anomalyFilter  string
+	enrollmentType string
+	date           string
+}
 
-func SearchOperatorPacketsBySID(c *gin.Context) {
-	// Get user from context
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return
+func parseSearchFilters(c *gin.Context) searchFilters {
+	return searchFilters{
+		sid:            c.Query("sid"),
+		anomalyFilter:  c.Query("anomaly_filter"),
+		enrollmentType: c.Query("enrollment_type"),
+		date:           c.Query("date"),
 	}
+}
 
-	user := userInterface.(*models.User)
-
-	// Get pagination parameters
-	page := 1
-	pageSize := 10
-	
-	if pageParam := c.Query("page"); pageParam != "" {
-		if p, err := fmt.Sscanf(pageParam, "%d", &page); err == nil && p == 1 && page > 0 {
-			// page is valid
-		} else {
-			page = 1
-		}
-	}
-	
-	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
-		if ps, err := fmt.Sscanf(pageSizeParam, "%d", &pageSize); err == nil && ps == 1 && pageSize > 0 && pageSize <= 1000 {
-			// pageSize is valid
-		} else {
-			pageSize = 10
-		}
-	}
-
-	optID := c.Query("opt_id") // e.g., "GJ_DOP_VDR_NS764416"
-
-	// Get optional filter parameters
-	searchSID := c.Query("sid")            // e.g., "123456789012" (optional)
-	anomalyFilter := c.Query("anomaly_filter") // "anomalous" or "non-anomalous" (optional)
-	enrollmentTypeFilter := c.Query("enrollment_type") // "new_enrollment" or "update" (optional)
-	dateFilter := c.Query("date")          // e.g., "2025-12-25" or "2025_12_25" (optional)
-
-	if optID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "opt_id query parameter is required",
-		})
-		return
-	}
-
-	dataPath, err := db.GetDataPathByOptID(optID)
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] DataPath lookup failed opt_id=%s user=%s: %v", optID, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":       "Operator data path not found",
-			"operator_id": optID,
-			"details":     err.Error(),
-		})
-		return
-	}
-
-	s3Cfg := config.GetDefaultS3Config()
-
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] S3 client error opt_id=%s user=%s: %v", optID, user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
-		return
-	}
-
-	filePath := strings.TrimSuffix(dataPath, "/") + "/sid.parquet"
-
-	result, err := s3Client.GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(s3Cfg.BucketName),
-		Key:    aws.String(filePath),
-	})
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] S3 fetch failed key=%s user=%s: %v", filePath, user.ADID, err)
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":           "Failed to fetch sid.parquet file",
-			"regional_office": user.RegionalOffice,
-			"operator_id":     optID,
-			"file_path":       filePath,
-			"details":         err.Error(),
-		})
-		return
-	}
-	defer result.Body.Close()
-
-	parquetBytes, err := io.ReadAll(result.Body)
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] Read body failed key=%s: %v", filePath, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data from S3", "details": err.Error()})
-		return
-	}
-
-	tempFile, err := os.CreateTemp("", "sid_*.parquet")
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] CreateTemp error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create temporary file", "details": err.Error()})
-		return
-	}
-	defer os.Remove(tempFile.Name())
-
-	if _, err = tempFile.Write(parquetBytes); err != nil {
-		tempFile.Close()
-		log.Printf("[SearchOperatorPacketsBySID] Write temp error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write parquet data to temporary file", "details": err.Error()})
-		return
-	}
-	tempFile.Close()
-
-	fr, err := local.NewLocalFileReader(tempFile.Name())
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] Open parquet error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to open parquet file", "details": err.Error()})
-		return
-	}
-	defer fr.Close()
-
-	pr, err := reader.NewParquetReader(fr, nil, 4)
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] Parquet reader error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create parquet reader", "details": err.Error()})
-		return
-	}
-	defer pr.ReadStop()
-
-	numRows := int(pr.GetNumRows())
-	log.Printf("[SearchOperatorPacketsBySID] Loaded %d rows from key=%s user=%s", numRows, filePath, user.ADID)
-	strs, err := pr.ReadByNumber(numRows)
-	if err != nil {
-		log.Printf("[SearchOperatorPacketsBySID] Read parquet data error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read parquet data", "details": err.Error()})
-		return
-	}
-
-	// Convert parquet data to JSON format
-	allData := make([]map[string]interface{}, 0)
-	for _, str := range strs {
-		// Marshal to JSON and unmarshal back to get map
-		jsonBytes, err := json.Marshal(str)
-		if err != nil {
+// normalizeDateFields converts numeric timestamp values in date/time fields to
+// "YYYY-MM-DD HH:MM:SS" and normalizes underscore-separated date strings to
+// hyphen-separated ones, in place.
+func normalizeDateFields(row map[string]interface{}) {
+	for key, val := range row {
+		lowerKey := strings.ToLower(key)
+		if !strings.Contains(lowerKey, "date") && !strings.Contains(lowerKey, "time") {
 			continue
 		}
-
-		var rowMap map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &rowMap); err != nil {
-			continue
-		}
-
-		// Skip empty rows
-		if len(rowMap) == 0 {
-			continue
-		}
-
-		// Convert date fields to normal format (YYYY-MM-DD HH:MM:SS)
-		for key, val := range rowMap {
-			lowerKey := strings.ToLower(key)
-			if strings.Contains(lowerKey, "date") || strings.Contains(lowerKey, "time") {
-				var timestamp float64
-				
-				// Handle different numeric types
-				switch v := val.(type) {
-				case float64:
-					timestamp = v
-				case float32:
-					timestamp = float64(v)
-				case int64:
-					timestamp = float64(v)
-				case int:
-					timestamp = float64(v)
-				case string:
-					// Try parsing string as number
-					valStr := strings.TrimSpace(v)
-					// Check if it's a date string format
-					if strings.Contains(valStr, "-") || strings.Contains(valStr, "_") {
-						// Already in string date format, normalize it
-						normalizedDate := strings.ReplaceAll(valStr, "_", "-")
-						rowMap[key] = normalizedDate
-						continue
-					}
-					// Try parsing as number
-					fmt.Sscanf(valStr, "%f", &timestamp)
-				}
-				
-				// If we have a timestamp value, convert it
-				if timestamp > 0 {
-					// Detect timestamp precision:
-					// Nanoseconds: > 1e15 (typically 19 digits like 1761396321000000000)
-					// Microseconds: > 1e12 and < 1e15
-					// Milliseconds: > 1e9 and < 1e12
-					// Seconds: < 1e9
-					
-					if timestamp > 1e15 {
-						// Nanoseconds - convert to seconds
-						timestamp = timestamp / 1e9
-					} else if timestamp > 1e12 {
-						// Milliseconds - convert to seconds
-						timestamp = timestamp / 1000.0
-					}
-					
-					// Validate timestamp is in reasonable range (between 2000 and 2100)
-					// Unix timestamp for 2000-01-01: 946684800
-					// Unix timestamp for 2100-01-01: 4102444800
-					if timestamp >= 946684800 && timestamp <= 4102444800 {
-						t := time.Unix(int64(timestamp), 0)
-						formattedDate := t.Format("2006-01-02 15:04:05")
-						rowMap[key] = formattedDate
-					}
-				}
+		var timestamp float64
+		switch v := val.(type) {
+		case float64:
+			timestamp = v
+		case float32:
+			timestamp = float64(v)
+		case int64:
+			timestamp = float64(v)
+		case int:
+			timestamp = float64(v)
+		case string:
+			valStr := strings.TrimSpace(v)
+			if strings.Contains(valStr, "-") || strings.Contains(valStr, "_") {
+				row[key] = strings.ReplaceAll(valStr, "_", "-")
+				continue
 			}
+			fmt.Sscanf(valStr, "%f", &timestamp)
 		}
-
-		allData = append(allData, rowMap)
+		if timestamp > 1e15 {
+			timestamp /= 1e9
+		} else if timestamp > 1e12 {
+			timestamp /= 1000.0
+		}
+		// Accept timestamps in the range 2000–2100.
+		if timestamp >= 946684800 && timestamp <= 4102444800 {
+			row[key] = time.Unix(int64(timestamp), 0).Format("2006-01-02 15:04:05")
+		}
 	}
+}
 
-	// Apply filters if provided
-	filteredData := make([]map[string]interface{}, 0)
-	for _, rowMap := range allData {
-		// Filter by SID search (check "eid" field)
-		if searchSID != "" {
-			matchFound := false
-			for key, val := range rowMap {
+func applySearchFilters(rows []map[string]interface{}, f searchFilters) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		if f.sid != "" {
+			found := false
+			for key, val := range row {
 				if strings.EqualFold(key, "eid") {
-					valStr := fmt.Sprintf("%v", val)
-					if strings.Contains(strings.ToLower(valStr), strings.ToLower(searchSID)) {
-						matchFound = true
+					if strings.Contains(strings.ToLower(fmt.Sprintf("%v", val)), strings.ToLower(f.sid)) {
+						found = true
 						break
 					}
 				}
 			}
-			if !matchFound {
+			if !found {
 				continue
 			}
 		}
 
-		// Filter by anomaly status
-		if anomalyFilter != "" {
+		if f.anomalyFilter != "" {
 			isAnomalous := false
-			
-			// Check Anomaly_type field
-			for key, val := range rowMap {
+			for key, val := range row {
 				if strings.EqualFold(key, "anomaly_type") {
-					// Check if the value is a non-empty array
 					switch v := val.(type) {
 					case []interface{}:
 						isAnomalous = len(v) > 0
 					case []string:
 						isAnomalous = len(v) > 0
 					case string:
-						// Handle string representation of arrays
 						v = strings.TrimSpace(v)
 						isAnomalous = v != "[]" && v != "" && v != "null"
 					default:
-						// If it's some other type, check if it's not nil/empty
 						isAnomalous = val != nil
 					}
 					break
 				}
 			}
-			
-			// Apply filter based on anomaly status
-			if strings.EqualFold(anomalyFilter, "anomalous") && !isAnomalous {
+			if strings.EqualFold(f.anomalyFilter, "anomalous") && !isAnomalous {
 				continue
 			}
-			if strings.EqualFold(anomalyFilter, "non-anomalous") && isAnomalous {
+			if strings.EqualFold(f.anomalyFilter, "non-anomalous") && isAnomalous {
 				continue
 			}
 		}
 
-		// Filter by enrollment type
-		if enrollmentTypeFilter != "" {
+		if f.enrollmentType != "" {
 			enrollmentType := ""
-			
-			// Check Enrolnment_type field
-			for key, val := range rowMap {
+			for key, val := range row {
 				if strings.EqualFold(key, "enrolnment_type") {
-					valStr := fmt.Sprintf("%v", val)
-					enrollmentType = strings.TrimSpace(valStr)
+					enrollmentType = strings.TrimSpace(fmt.Sprintf("%v", val))
 					break
 				}
 			}
-			
-			// Map the enrollment type: "U" = update, "N" = new_enrollment
-			if strings.EqualFold(enrollmentTypeFilter, "update") && !strings.EqualFold(enrollmentType, "U") {
+			if strings.EqualFold(f.enrollmentType, "update") && !strings.EqualFold(enrollmentType, "U") {
 				continue
 			}
-			if strings.EqualFold(enrollmentTypeFilter, "new_enrollment") && !strings.EqualFold(enrollmentType, "N") {
+			if strings.EqualFold(f.enrollmentType, "new_enrollment") && !strings.EqualFold(enrollmentType, "N") {
 				continue
 			}
 		}
 
-		// Filter by date
-		if dateFilter != "" {
-			matchFound := false
-			// Normalize date filter (support both - and _ separators)
-			normalizedDateFilter := strings.ReplaceAll(dateFilter, "-", "_")
-			
-			// Check common date fields: date, Date, packet_date, Date_packet, etc.
-			for key, val := range rowMap {
-				lowerKey := strings.ToLower(key)
-				if strings.Contains(lowerKey, "date") {
-					valStr := fmt.Sprintf("%v", val)
-					// Normalize value (replace - with _)
-					normalizedVal := strings.ReplaceAll(valStr, "-", "_")
-					if strings.Contains(normalizedVal, normalizedDateFilter) {
-						matchFound = true
+		if f.date != "" {
+			normalizedFilter := strings.ReplaceAll(f.date, "-", "_")
+			found := false
+			for key, val := range row {
+				if strings.Contains(strings.ToLower(key), "date") {
+					if strings.Contains(strings.ReplaceAll(fmt.Sprintf("%v", val), "-", "_"), normalizedFilter) {
+						found = true
 						break
 					}
 				}
 			}
-			if !matchFound {
+			if !found {
 				continue
 			}
 		}
 
-		filteredData = append(filteredData, rowMap)
+		out = append(out, row)
+	}
+	return out
+}
+
+func SearchOperatorPacketsBySID(c *gin.Context) {
+	user, ok := authctx.RequireUser(c)
+	if !ok {
+		return
 	}
 
-	// Calculate pagination
-	totalRecords := len(filteredData)
-	totalPages := (totalRecords + pageSize - 1) / pageSize
-	
-	if page > totalPages && totalPages > 0 {
-		page = totalPages
+	page, pageSize := pageparam.Parse(c, 10, 1000)
+	optID := c.Query("opt_id")
+	if optID == "" {
+		respond.Error(c, http.StatusBadRequest, "opt_id query parameter is required", nil, nil)
+		return
 	}
-	
-	startIndex := (page - 1) * pageSize
-	endIndex := startIndex + pageSize
-	
-	if startIndex >= totalRecords {
-		startIndex = 0
-		endIndex = 0
-	} else if endIndex > totalRecords {
-		endIndex = totalRecords
+	filters := parseSearchFilters(c)
+
+	dataPath, err := db.GetDataPathByOptID(optID)
+	if err != nil {
+		log.Printf("[SearchOperatorPacketsBySID] DataPath lookup failed opt_id=%s user=%s: %v", optID, user.ADID, err)
+		respond.Error(c, http.StatusNotFound, "Operator data path not found", err, gin.H{"operator_id": optID})
+		return
 	}
-	
-	paginatedData := []map[string]interface{}{}
-	if startIndex < endIndex {
-		paginatedData = filteredData[startIndex:endIndex]
+
+	s3Cfg := config.GetDefaultS3Config()
+	filePath := strings.TrimSuffix(dataPath, "/") + "/sid.parquet"
+
+	rows, err := s3store.FetchParquetRows[map[string]interface{}](s3Cfg, filePath)
+	if err != nil {
+		if s3store.IsNotFound(err) {
+			log.Printf("[SearchOperatorPacketsBySID] S3 fetch failed key=%s user=%s: %v", filePath, user.ADID, err)
+			respond.Error(c, http.StatusNotFound, "Failed to fetch sid.parquet file", err, gin.H{
+				"regional_office": user.RegionalOffice,
+				"operator_id":     optID,
+				"file_path":       filePath,
+			})
+		} else {
+			log.Printf("[SearchOperatorPacketsBySID] Parse failed key=%s user=%s: %v", filePath, user.ADID, err)
+			respond.Error(c, http.StatusInternalServerError, "Failed to parse parquet data", err, nil)
+		}
+		return
 	}
+
+	// Drop empty rows (rows where all fields were skipped during decode).
+	nonEmpty := rows[:0]
+	for _, row := range rows {
+		if len(row) > 0 {
+			nonEmpty = append(nonEmpty, row)
+		}
+	}
+	rows = nonEmpty
+
+	log.Printf("[SearchOperatorPacketsBySID] Loaded %d rows from key=%s user=%s", len(rows), filePath, user.ADID)
+
+	for _, row := range rows {
+		normalizeDateFields(row)
+	}
+
+	filteredData := applySearchFilters(rows, filters)
+	result := pageparam.Slice(filteredData, page, pageSize)
 
 	log.Printf("[SearchOperatorPacketsBySID] Returning %d/%d rows for opt_id=%s user=%s (page %d)",
-		len(paginatedData), totalRecords, optID, user.ADID, page)
-	c.JSON(http.StatusOK, gin.H{
+		len(result.Items), result.Total, optID, user.ADID, result.Page)
+	respond.OK(c, gin.H{
 		"regional_office":        user.RegionalOffice,
 		"operator_id":            optID,
 		"file_path":              filePath,
-		"search_sid":             searchSID,
-		"anomaly_filter":         anomalyFilter,
-		"enrollment_type_filter": enrollmentTypeFilter,
-		"date_filter":            dateFilter,
-		"pagination": gin.H{
-			"page":          page,
-			"page_size":     pageSize,
-			"total_records": totalRecords,
-			"total_pages":   totalPages,
-			"has_next":      page < totalPages,
-			"has_previous":  page > 1,
-		},
-		"count":        len(paginatedData),
-		"data":         paginatedData,
-		"requested_by": user.ADID,
+		"search_sid":             filters.sid,
+		"anomaly_filter":         filters.anomalyFilter,
+		"enrollment_type_filter": filters.enrollmentType,
+		"date_filter":            filters.date,
+		"pagination":             result.JSON(),
+		"count":                  len(result.Items),
+		"data":                   result.Items,
+		"requested_by":           user.ADID,
 	})
 }

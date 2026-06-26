@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"opt360-portal-backend/config"
+	"opt360-portal-backend/respond"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +32,7 @@ type sidLookupResult struct {
 func GetSIDBatchValues(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+		respond.Error(c, http.StatusBadRequest, "failed to read request body", nil, nil)
 		return
 	}
 
@@ -39,14 +40,14 @@ func GetSIDBatchValues(c *gin.Context) {
 	if err := json.Unmarshal(body, &sids); err != nil {
 		var req sidBatchGetRequest
 		if err := json.Unmarshal(body, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+			respond.Error(c, http.StatusBadRequest, "invalid request body", err, nil)
 			return
 		}
 		sids = req.SIDs
 	}
 
 	if len(sids) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "sids are required"})
+		respond.Error(c, http.StatusBadRequest, "sids are required", nil, nil)
 		return
 	}
 
@@ -54,7 +55,7 @@ func GetSIDBatchValues(c *gin.Context) {
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load configuration", "details": err.Error()})
+		respond.Error(c, http.StatusInternalServerError, "failed to load configuration", err, nil)
 		return
 	}
 
@@ -120,7 +121,7 @@ func GetSIDBatchValues(c *gin.Context) {
 	}
 
 	log.Printf("[GetSIDBatchValues] Completed: %d/%d successful", successCount, len(sids))
-	c.JSON(http.StatusOK, gin.H{
+	respond.OK(c, gin.H{
 		"success":    successCount == len(sids),
 		"message":    "SID lookups completed",
 		"requested":  len(sids),

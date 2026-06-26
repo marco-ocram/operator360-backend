@@ -5,31 +5,24 @@ import (
 	"net/http"
 
 	"opt360-portal-backend/db"
+	"opt360-portal-backend/respond"
 
 	"github.com/gin-gonic/gin"
 )
 
-// OperatorStatusRequest represents the request body for operator status
 type OperatorStatusRequest struct {
 	UserCode string `json:"user_code" binding:"required"`
 }
 
 func GetOperatorStatus(c *gin.Context) {
-	// Parse request body
 	var req OperatorStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid request body",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusBadRequest, "Invalid request body", err, nil)
 		return
 	}
 
-	// Validate that user_code is not empty
 	if req.UserCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "user_code is required",
-		})
+		respond.Error(c, http.StatusBadRequest, "user_code is required", nil, nil)
 		return
 	}
 
@@ -37,16 +30,16 @@ func GetOperatorStatus(c *gin.Context) {
 	if err != nil {
 		if err.Error() == "operator not found" {
 			log.Printf("[GetOperatorStatus] Not found user_code=%s", req.UserCode)
-			c.JSON(http.StatusNotFound, gin.H{"error": "Operator not found", "user_code": req.UserCode})
+			respond.Error(c, http.StatusNotFound, "Operator not found", nil, gin.H{"user_code": req.UserCode})
 			return
 		}
 		log.Printf("[GetOperatorStatus] DB error user_code=%s: %v", req.UserCode, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve operator status", "details": err.Error()})
+		respond.Error(c, http.StatusInternalServerError, "Failed to retrieve operator status", err, nil)
 		return
 	}
 
 	log.Printf("[GetOperatorStatus] Returning status for user_code=%s name=%s", req.UserCode, status.UserName)
-	c.JSON(http.StatusOK, gin.H{
+	respond.OK(c, gin.H{
 		"user_status": status.UserStatus,
 		"user_name":   status.UserName,
 		"user_uid":    status.UserUID,

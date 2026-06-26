@@ -5,71 +5,51 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/authctx"
 	"opt360-portal-backend/db"
-	"opt360-portal-backend/models"
+	"opt360-portal-backend/respond"
 
 	"github.com/gin-gonic/gin"
 )
 
-// GetEaAndReg handles GET /api/geteaandreg
-// Query param: value=ea  → returns distinct ea values for the user's RO
-// Query param: value=reg → returns distinct reg values for the user's RO
 func GetEaAndReg(c *gin.Context) {
-
-	// ── 1. Auth guard ──────────────────────────────────────────────────────────
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	user, ok := authctx.RequireUser(c)
+	if !ok {
 		return
 	}
-	user := userInterface.(*models.User)
 
-	// ── 2. Validate query param ────────────────────────────────────────────────
 	value := c.Query("value")
 	if value != "ea" && value != "reg" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":           "query parameter 'value' is required",
+		respond.Error(c, http.StatusBadRequest, "query parameter 'value' is required", nil, gin.H{
 			"accepted_values": []string{"ea", "reg"},
 		})
 		return
 	}
 
-	// ── 3. DB connection ───────────────────────────────────────────────────────
 	database, err := db.GetDB()
 	if err != nil {
 		log.Printf("[GetEaAndReg] DB connection error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Database connection unavailable",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Database connection unavailable", err, nil)
 		return
 	}
 
-	// ── 4. Build and execute query ─────────────────────────────────────────────
-	// Column name is validated above (only "ea" or "reg"), safe to interpolate.
+	// value is validated above (only "ea" or "reg"), safe to interpolate.
 	query := "SELECT DISTINCT " + value + " FROM operator360.opt_master WHERE ro = ? AND " + value + " IS NOT NULL ORDER BY " + value
 
 	rows, err := database.Query(query, user.RegionalOffice)
 	if err != nil {
 		log.Printf("[GetEaAndReg] Query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to fetch data",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Failed to fetch data", err, nil)
 		return
 	}
 	defer rows.Close()
 
-	// ── 5. Scan rows ───────────────────────────────────────────────────────────
 	results := make([]string, 0)
 	for rows.Next() {
 		var val sql.NullString
 		if err := rows.Scan(&val); err != nil {
 			log.Printf("[GetEaAndReg] Row scan error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to process record",
-				"details": err.Error(),
-			})
+			respond.Error(c, http.StatusInternalServerError, "Failed to process record", err, nil)
 			return
 		}
 		if val.Valid {
@@ -78,16 +58,12 @@ func GetEaAndReg(c *gin.Context) {
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("[GetEaAndReg] Row iteration error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Error while reading records",
-			"details": err.Error(),
-		})
+		respond.Error(c, http.StatusInternalServerError, "Error while reading records", err, nil)
 		return
 	}
 
-	// ── 6. Respond ─────────────────────────────────────────────────────────────
 	log.Printf("[GetEaAndReg] Returning %d distinct %s values for ro=%s", len(results), value, user.RegionalOffice)
-	c.JSON(http.StatusOK, gin.H{
+	respond.OK(c, gin.H{
 		"data":            results,
 		"count":           len(results),
 		"type":            value,
