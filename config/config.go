@@ -73,9 +73,9 @@ type ClickHouseConfig struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	Password string `json:"password"`
-	// Secure enables TLS for the native protocol connection. Many managed/prod
-	// ClickHouse clusters require this (typically on port 9440); leaving it
-	// false against a TLS-only cluster will fail the connection test even
+	// Secure enables TLS for the HTTP protocol connection (i.e. https, typically
+	// port 8443 on managed/prod clusters instead of the default 8123); leaving
+	// it false against a TLS-only cluster will fail the connection test even
 	// though the host is network-reachable.
 	Secure bool `json:"secure"`
 }
@@ -148,7 +148,7 @@ func Load(path string) (*Config, error) {
 		cfg.SIDStore.TimeoutSeconds = 15
 	}
 	if cfg.ClickHouse.Port == 0 {
-		cfg.ClickHouse.Port = 9000
+		cfg.ClickHouse.Port = 8123
 	}
 	if cfg.Trino.Port == 0 {
 		cfg.Trino.Port = 8080
