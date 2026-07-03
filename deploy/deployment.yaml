@@ -1,0 +1,29 @@
+# Minimal reference Deployment showing how to wire configmap.yaml in. If a
+# Deployment for this app already exists elsewhere in your ArgoCD/Gitea setup,
+# just add the `envFrom` block below to its container spec — that's the only
+# part that matters here — rather than replacing the whole file.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opt360-backend
+  namespace: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opt360-backend
+  template:
+    metadata:
+      labels:
+        app: opt360-backend
+    spec:
+      containers:
+        - name: opt360-backend
+          image: CHANGE_ME/opt360-portal-backend:CHANGE_ME
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: opt360-backend-config
+          # No volumeMounts/config.json needed — every value the backend reads
+          # comes from the env vars above (config/config.go).

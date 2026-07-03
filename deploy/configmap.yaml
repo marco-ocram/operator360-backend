@@ -1,0 +1,65 @@
+# Non-secret AND secret config in one ConfigMap, per explicit decision (2026-07-03):
+# this repo/Gitea's access control is the security boundary for these values, not
+# Kubernetes Secret encryption. Fill in every CHANGE_ME below with the real
+# staging values (see your local config.json), then apply/commit for ArgoCD to sync.
+#
+# Full key reference: config/config.go's applyEnvOverrides(). Anything not set
+# here falls back to the defaults in config.go's Load() (e.g. ports, pool sizes).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opt360-backend-config
+  namespace: staging
+data:
+  OPT360_SERVER_HOST: "0.0.0.0"
+  OPT360_SERVER_PORT: "8080"
+
+  OPT360_S3_ENDPOINT: "CHANGE_ME"
+  OPT360_S3_BUCKET_NAME: "CHANGE_ME"
+  OPT360_S3_REGION: "us-east-1"
+  OPT360_S3_ACCESS_KEY: "CHANGE_ME"
+  OPT360_S3_SECRET_KEY: "CHANGE_ME"
+
+  OPT360_DB_PORTAL_HOST: "CHANGE_ME"
+  OPT360_DB_PORTAL_PORT: "3306"
+  OPT360_DB_PORTAL_USER: "CHANGE_ME"
+  OPT360_DB_PORTAL_PASSWORD: "CHANGE_ME"
+  OPT360_DB_PORTAL_DATABASE: "strot_services"
+  OPT360_DB_PORTAL_MAX_OPEN_CONNS: "10"
+  OPT360_DB_PORTAL_MAX_IDLE_CONNS: "2"
+  OPT360_DB_PORTAL_CONN_MAX_LIFETIME_SECONDS: "300"
+
+  OPT360_DB_UID_HOST: "CHANGE_ME"
+  OPT360_DB_UID_PORT: "3306"
+  OPT360_DB_UID_USER: "CHANGE_ME"
+  OPT360_DB_UID_PASSWORD: "CHANGE_ME"
+  OPT360_DB_UID_DATABASE: "uidmasterv1_1"
+  OPT360_DB_UID_MAX_OPEN_CONNS: "15"
+  OPT360_DB_UID_MAX_IDLE_CONNS: "5"
+  OPT360_DB_UID_CONN_MAX_LIFETIME_SECONDS: "300"
+
+  OPT360_DB_OPT360_HOST: "CHANGE_ME"
+  OPT360_DB_OPT360_PORT: "3306"
+  OPT360_DB_OPT360_USER: "CHANGE_ME"
+  OPT360_DB_OPT360_PASSWORD: "CHANGE_ME"
+  OPT360_DB_OPT360_DATABASE: "operator360"
+  OPT360_DB_OPT360_MAX_OPEN_CONNS: "25"
+  OPT360_DB_OPT360_MAX_IDLE_CONNS: "5"
+  OPT360_DB_OPT360_CONN_MAX_LIFETIME_SECONDS: "300"
+
+  OPT360_SID_STORE_BASE_URL: "http://localhost:9001"
+  OPT360_SID_STORE_TIMEOUT_SECONDS: "15"
+
+  # Optional — leave as "" if not in use; backend logs a non-fatal warning either way.
+  OPT360_CLICKHOUSE_HOST: ""
+  OPT360_CLICKHOUSE_PORT: "9000"
+  OPT360_CLICKHOUSE_DATABASE: ""
+  OPT360_CLICKHOUSE_USERNAME: ""
+  OPT360_CLICKHOUSE_PASSWORD: ""
+  OPT360_CLICKHOUSE_SECURE: "false"
+
+  OPT360_TRINO_HOST: ""
+  OPT360_TRINO_PORT: "8080"
+  OPT360_TRINO_CATALOG: ""
+  OPT360_TRINO_SCHEMA: ""
+  OPT360_TRINO_USERNAME: ""
