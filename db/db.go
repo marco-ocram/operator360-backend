@@ -3,10 +3,12 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"opt360-portal-backend/models"
@@ -29,13 +31,41 @@ var (
 	
 
 
-// DBConfig holds database connection configuration
+// DBConfig holds database connection configuration. Pool settings are
+// per-database on purpose — different databases in this app see very
+// different traffic shapes (e.g. the portal DB is light auth lookups, the
+// opt360 DB carries the heavy operator-search/listing traffic), so a single
+// shared pool size wouldn't fit all three well.
 type DBConfig struct {
 	User     string
 	Password string
 	Host     string
 	Port     int
 	Database string
+
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
+// applyPoolSettings configures connection pooling on an already-opened *sql.DB,
+// falling back to reasonable defaults for any zero-valued field.
+func applyPoolSettings(database *sql.DB, config DBConfig) {
+	maxOpen := config.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	maxIdle := config.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	lifetime := config.ConnMaxLifetime
+	if lifetime <= 0 {
+		lifetime = 5 * time.Minute
+	}
+	database.SetMaxOpenConns(maxOpen)
+	database.SetMaxIdleConns(maxIdle)
+	database.SetConnMaxLifetime(lifetime)
 }
 
 // InitDB initializes the database connection
@@ -66,6 +96,7 @@ func InitDB(config DBConfig) error {
 			return
 		}
 
+		applyPoolSettings(db, config)
 		log.Println("Database connection established successfully")
 	})
 
@@ -108,6 +139,7 @@ func InitUIDDB(config DBConfig) error {
 			return
 		}
 
+		applyPoolSettings(uidDB, config)
 		log.Println("UID Database connection established successfully")
 	})
 
@@ -148,6 +180,7 @@ func InitPortalDB(config DBConfig) error {
 			return
 		}
 
+		applyPoolSettings(portalDB, config)
 		log.Println("Portal Database connection established successfully")
 	})
 	return portalDBErr
@@ -161,6 +194,48 @@ func GetPortalDB() (*sql.DB, error) {
 	return portalDB, nil
 }
 
+const userColumns = "user_id, user_name, `group`, role, email, status, last_login, created_at, created_by"
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...interface{}) error
+}
+
+// scanUser scans a row selected with userColumns into a models.User, handling
+// the nullable profile columns (email/status/last_login/created_at/created_by)
+// added for the Profile + My Team feature.
+func scanUser(row rowScanner) (*models.User, error) {
+	var user models.User
+	var email, status, createdBy sql.NullString
+	var lastLogin, createdAt sql.NullTime
+
+	if err := row.Scan(
+		&user.ADID, &user.Name, &user.RegionalOffice, &user.Role,
+		&email, &status, &lastLogin, &createdAt, &createdBy,
+	); err != nil {
+		return nil, err
+	}
+
+	if email.Valid {
+		user.Email = &email.String
+	}
+	if status.Valid {
+		user.Status = status.String
+	} else {
+		user.Status = "active"
+	}
+	if lastLogin.Valid {
+		user.LastLogin = &lastLogin.Time
+	}
+	if createdAt.Valid {
+		user.CreatedAt = &createdAt.Time
+	}
+	if createdBy.Valid {
+		user.CreatedBy = &createdBy.String
+	}
+	return &user, nil
+}
+
 // GetUserByADID retrieves user information from database
 func GetUserByADID(adID string) (*models.User, error) {
 	database, err := GetPortalDB()
@@ -169,22 +244,11 @@ func GetUserByADID(adID string) (*models.User, error) {
 		return nil, err
 	}
 
-	query := `
-		SELECT user_id, user_name, ` + "`group`" + `, role 
-		FROM opt360_portal_users 
-		WHERE user_id = ?
-	`
+	query := `SELECT ` + userColumns + ` FROM opt360_portal_users WHERE user_id = ?`
 
 	log.Printf("Querying user with ADID: %s", adID)
 
-	var user models.User
-	err = database.QueryRow(query, adID).Scan(
-		&user.ADID,
-		&user.Name,
-		&user.RegionalOffice,
-		&user.Role,
-	)
-
+	user, err := scanUser(database.QueryRow(query, adID))
 	if err == sql.ErrNoRows {
 		log.Printf("No user found with ADID: %s", adID)
 		return nil, fmt.Errorf("user not found")
@@ -195,7 +259,7 @@ func GetUserByADID(adID string) (*models.User, error) {
 	}
 
 	log.Printf("Successfully found user: %s (Role: %s, Group: %s)", user.Name, user.Role, user.RegionalOffice)
-	return &user, nil
+	return user, nil
 }
 
 // GetAllUsers retrieves all users from database
@@ -205,10 +269,7 @@ func GetAllUsers() ([]models.User, error) {
 		return nil, err
 	}
 
-	query := `
-		SELECT user_id, user_name, ` + "`group`" + `, role 
-		FROM opt360_portal_users
-	`
+	query := `SELECT ` + userColumns + ` FROM opt360_portal_users`
 
 	rows, err := database.Query(query)
 	if err != nil {
@@ -218,11 +279,11 @@ func GetAllUsers() ([]models.User, error) {
 
 	var users []models.User
 	for rows.Next() {
-		var user models.User
-		if err := rows.Scan(&user.ADID, &user.Name, &user.RegionalOffice, &user.Role); err != nil {
+		user, err := scanUser(rows)
+		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
-		users = append(users, user)
+		users = append(users, *user)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -262,6 +323,127 @@ func UpdateUserGroup(userID string, group string) error {
 	}
 
 	log.Printf("Successfully updated group for user_id: %s", userID)
+	return nil
+}
+
+// GetUsersByGroup retrieves all users belonging to a given group ("My Team" list).
+func GetUsersByGroup(group string) ([]models.User, error) {
+	database, err := GetPortalDB()
+	if err != nil {
+		return nil, err
+	}
+
+	query := `SELECT ` + userColumns + ` FROM opt360_portal_users WHERE ` + "`group`" + ` = ? ORDER BY user_name`
+
+	rows, err := database.Query(query, group)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users by group: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]models.User, 0)
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, *user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return users, nil
+}
+
+// ErrDuplicateUser is returned by CreateUser when the ad_id already exists.
+var ErrDuplicateUser = fmt.Errorf("user already exists")
+
+// CreateUser onboards a new portal user. Status is always "active" on creation.
+func CreateUser(user models.User) error {
+	database, err := GetPortalDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return err
+	}
+
+	query := `
+		INSERT INTO opt360_portal_users (user_id, user_name, ` + "`group`" + `, role, email, status, created_by)
+		VALUES (?, ?, ?, ?, ?, 'active', ?)
+	`
+
+	_, err = database.Exec(query, user.ADID, user.Name, user.RegionalOffice, user.Role, user.Email, user.CreatedBy)
+	if err != nil {
+		var mysqlErr *mysql.MySQLError
+		if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+			return ErrDuplicateUser
+		}
+		log.Printf("Failed to create user '%s': %v", user.ADID, err)
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+
+	log.Printf("Successfully onboarded user_id: %s (role=%s, group=%s, created_by=%v)", user.ADID, user.Role, user.RegionalOffice, user.CreatedBy)
+	return nil
+}
+
+// UpdateUserStatus sets a user's active/inactive status.
+func UpdateUserStatus(adID, status string) error {
+	return updateUserField("status", adID, status)
+}
+
+// UpdateUserRole sets a user's role.
+func UpdateUserRole(adID, role string) error {
+	return updateUserField("role", adID, role)
+}
+
+// UpdateUserEmail sets a user's email address.
+func UpdateUserEmail(adID, email string) error {
+	return updateUserField("email", adID, email)
+}
+
+// updateUserField updates a single named column in opt360_portal_users for one user.
+// column is always one of a small fixed set of caller-supplied literals (never
+// user-controlled input), so this is safe despite the string-built column name.
+func updateUserField(column, adID, value string) error {
+	database, err := GetPortalDB()
+	if err != nil {
+		log.Printf("Database connection error: %v", err)
+		return err
+	}
+
+	query := `UPDATE opt360_portal_users SET ` + column + ` = ? WHERE user_id = ?`
+
+	result, err := database.Exec(query, value, adID)
+	if err != nil {
+		log.Printf("Failed to update %s for user_id '%s': %v", column, adID, err)
+		return fmt.Errorf("failed to update user %s: %w", column, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to verify update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	log.Printf("Successfully updated %s for user_id: %s", column, adID)
+	return nil
+}
+
+// UpdateLastLogin stamps a user's last_login to the current time. Called once per
+// session from the Profile fetch (see handlers/Profile) rather than on every
+// authenticated request, to avoid a DB write on every API call.
+func UpdateLastLogin(adID string) error {
+	database, err := GetPortalDB()
+	if err != nil {
+		return err
+	}
+	_, err = database.Exec(`UPDATE opt360_portal_users SET last_login = NOW() WHERE user_id = ?`, adID)
+	if err != nil {
+		log.Printf("Failed to update last_login for user_id '%s': %v", adID, err)
+		return fmt.Errorf("failed to update last_login: %w", err)
+	}
 	return nil
 }
 

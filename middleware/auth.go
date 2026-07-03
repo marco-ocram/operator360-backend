@@ -100,6 +100,17 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Reject deactivated accounts (see docs/RBAC_PLAN.md — admin/superadmin can
+		// toggle a user's status via POST /api/team/update).
+		if strings.EqualFold(user.Status, "inactive") {
+			log.Printf("[Auth] Rejected inactive user=%s from %s", adID, c.ClientIP())
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "Account is inactive",
+			})
+			c.Abort()
+			return
+		}
+
 		// Check if user has a session-stored regional office override
 		sessionManager := session.GetSessionManager()
 		if sessionRegionalOffice, exists := sessionManager.GetUserRegionalOffice(adID); exists {

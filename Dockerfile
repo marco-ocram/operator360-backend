@@ -29,7 +29,12 @@ WORKDIR /home/uidapp
 COPY --from=build /operator360-portal-backend .
 COPY --from=build /SCA-bom.json .
 COPY --from=build /users.json .
-COPY --from=build /config.json .
+
+# No config.json baked in — runtime config comes entirely from OPT360_* env
+# vars (ConfigMap for non-secret fields, Secret for credentials), see
+# config/config.go and docs/LOCAL_SETUP.md. config.json is still supported as
+# a fallback for local (non-container) runs but is gitignored and never part
+# of the build context.
 
 EXPOSE 8080
 CMD ["/home/uidapp/operator360-portal-backend"]

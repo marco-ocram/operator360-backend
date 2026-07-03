@@ -9,8 +9,10 @@ import (
 	"opt360-portal-backend/handlers/LandingPage"
 	"opt360-portal-backend/handlers/OperatorDetailView"
 	"opt360-portal-backend/handlers/OperatorTab"
+	"opt360-portal-backend/handlers/Profile"
 	"opt360-portal-backend/handlers/RegionEvaluation"
 	"opt360-portal-backend/handlers/SidReview"
+	"opt360-portal-backend/handlers/Team"
 	"opt360-portal-backend/handlers/User"
 
 	"github.com/gin-gonic/gin"
@@ -45,14 +47,8 @@ func SetupRoutes(router *gin.Engine) {
 		api.POST("/selected_registrars", LandingPage.GetSelectedRegistrars)
 		api.GET("/top10registrar", LandingPage.GetTop10Registrars)
 		api.GET("/all_registrars", LandingPage.GetAllRegistrars)
-		api.GET("/operator_list", OperatorTab.GetOperatorList)
-		api.GET("/active_operator_list", OperatorTab.GetActiveOperatorList)
-		api.GET("/inactive_operator_list", OperatorTab.GetInactiveOperatorList)
-		api.GET("/high_risk_operator", OperatorTab.GetHighRiskOperators)
-		api.GET("/med_risk_operator", OperatorTab.GetMediumRiskOperators)
-		api.GET("/low_risk_operator", OperatorTab.GetLowRiskOperators)
-		api.GET("/operator_list_with_risk", OperatorTab.GetOperatorListWithRisk)
-		api.GET("/filter_operator_list", OperatorTab.GetFilteredOperatorList)
+		api.POST("/operator_search", OperatorTab.SearchOperators)
+		api.POST("/operator_filters", OperatorTab.GetOperatorFilters)
 		api.GET("/operator_details", OperatorDetailView.GetOperatorDetails)
 		api.GET("/operator_features", OperatorDetailView.GetOperatorFeatures)
 		api.POST("/operator_status", OperatorDetailView.GetOperatorStatus)
@@ -65,6 +61,14 @@ func SetupRoutes(router *gin.Engine) {
 		api.GET("/region_evaluation_count", RegionEvaluation.GetRegionEvaluationCount)
 		api.POST("/report_anomaly", Anomaly.ReportAnomaly)
 		api.GET("/active_opt", OperatorTab.GetActiveOpt)
+
+		// Profile + My Team (RBAC) — see docs/RBAC_PLAN.md. Kept POST-only per
+		// instruction, including reads, rather than mixing in GET/PATCH.
+		api.POST("/profile", Profile.GetProfile)
+		api.POST("/profile/update_email", Profile.UpdateEmail)
+		api.POST("/team", Team.GetTeam)
+		api.POST("/team/onboard", Team.OnboardUser)
+		api.POST("/team/update", Team.UpdateUser)
 
 	}
 }

@@ -3,8 +3,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -21,13 +25,41 @@ type S3Config struct {
 	Region     string `json:"region"`
 }
 
-// DatabaseConfig holds database connection configuration
+// DatabaseConfig holds one database's connection configuration, including its
+// own connection-pool tuning. Pool settings are per-database deliberately —
+// this app's three MySQL databases see very different traffic shapes (the
+// portal DB is light auth lookups; the opt360 DB carries the heavy
+// operator-search/listing traffic), so one shared pool size wouldn't fit all
+// three well. All fields (including pool settings) are individually
+// overridable via env vars — see applyEnvOverrides.
 type DatabaseConfig struct {
-	User     string `json:"user"`
-	Password string `json:"password"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
 	Database string `json:"database"`
+
+	// Connection pool tuning. Zero values fall back to sane defaults in Load()
+	// (25 / 5 / 5 minutes) rather than Go's database/sql default of "unlimited
+	// open connections", which is rarely what you actually want in production.
+	MaxOpenConns           int `json:"max_open_conns"`
+	MaxIdleConns           int `json:"max_idle_conns"`
+	ConnMaxLifetimeSeconds int `json:"conn_max_lifetime_seconds"`
+}
+
+// ConnMaxLifetime returns ConnMaxLifetimeSeconds as a time.Duration.
+func (d DatabaseConfig) ConnMaxLifetime() time.Duration {
+	return time.Duration(d.ConnMaxLifetimeSeconds) * time.Second
+}
+
+// DatabasesConfig groups this app's three MySQL connections. Grouped (rather
+// than three top-level Config fields, one of them ambiguously named
+// "database") so the shape reads clearly and maps cleanly onto three separate
+// ConfigMap/Secret pairs when this moves to stage/prod.
+type DatabasesConfig struct {
+	Portal DatabaseConfig `json:"portal"` // strot_services — auth users + anomaly reports
+	UID    DatabaseConfig `json:"uid"`    // uidmasterv1_1 — UID/user identity data
+	Opt360 DatabaseConfig `json:"opt360"` // operator360 — primary operator master data
 }
 
 type SIDStoreConfig struct {
@@ -41,6 +73,11 @@ type ClickHouseConfig struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// Secure enables TLS for the native protocol connection. Many managed/prod
+	// ClickHouse clusters require this (typically on port 9440); leaving it
+	// false against a TLS-only cluster will fail the connection test even
+	// though the host is network-reachable.
+	Secure bool `json:"secure"`
 }
 
 type TrinoConfig struct {
@@ -51,19 +88,19 @@ type TrinoConfig struct {
 	Username string `json:"username"`
 }
 
-// Config holds the entire configuration structure
+type ServerConfig struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
+// Config holds the entire configuration structure.
 type Config struct {
-	Server struct {
-		Host string `json:"host"`
-		Port int    `json:"port"`
-	} `json:"server"`
-	S3              S3Config         `json:"s3"`
-	Database        DatabaseConfig   `json:"database"`
-	UIDDatabase     DatabaseConfig   `json:"uid_database"`
-	Opt360Database  DatabaseConfig   `json:"opt360_database"`
-	SIDStore        SIDStoreConfig   `json:"sid_store"`
-	ClickHouse      ClickHouseConfig `json:"clickhouse"`
-	Trino           TrinoConfig      `json:"trino"`
+	Server     ServerConfig     `json:"server"`
+	S3         S3Config         `json:"s3"`
+	Databases  DatabasesConfig  `json:"databases"`
+	SIDStore   SIDStoreConfig   `json:"sid_store"`
+	ClickHouse ClickHouseConfig `json:"clickhouse"`
+	Trino      TrinoConfig      `json:"trino"`
 }
 
 var (
@@ -72,29 +109,37 @@ var (
 	configErr  error
 )
 
-// Load reads and validates the configuration from the given file path.
+// Load reads configuration from the given file path (if present), then layers
+// OPT360_* environment variable overrides on top, then validates and applies
+// defaults.
+//
+// The file is optional: in local dev it's normally config.json; in
+// stage/prod, where this moves to a Kubernetes ConfigMap (non-secret fields)
+// + Secret (credentials) injected as env vars, no file needs to exist at all
+// — a missing file just means every field comes from the environment
+// instead. This lets the same binary and the same Config struct serve both
+// deployment styles without code changes.
 func Load(path string) (*Config, error) {
+	var cfg Config
+
 	file, err := os.Open(path)
-	if err != nil {
+	switch {
+	case err == nil:
+		defer file.Close()
+		if decodeErr := json.NewDecoder(file).Decode(&cfg); decodeErr != nil {
+			return nil, fmt.Errorf("failed to decode config file '%s': %w", path, decodeErr)
+		}
+	case os.IsNotExist(err):
+		log.Printf("[config] %s not found — relying entirely on OPT360_* environment variables", path)
+	default:
 		return nil, fmt.Errorf("failed to open config file '%s': %w", path, err)
 	}
-	defer file.Close()
 
-	var cfg Config
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to decode config file: %w", err)
-	}
+	applyEnvOverrides(&cfg)
 
-	// Basic validation
-	if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" || cfg.S3.Endpoint == "" {
-		return nil, fmt.Errorf("s3 'access_key', 'secret_key', and 'endpoint' must be set in config file")
-	}
-	if cfg.S3.BucketName == "" {
-		return nil, fmt.Errorf("s3 'bucket_name' must be set in config file")
-	}
+	// ── Defaults ────────────────────────────────────────────────────────────
 	if cfg.Server.Port == 0 {
-		cfg.Server.Port = 8080 
+		cfg.Server.Port = 8080
 	}
 	if cfg.SIDStore.BaseURL == "" {
 		cfg.SIDStore.BaseURL = "http://localhost:9001"
@@ -108,35 +153,136 @@ func Load(path string) (*Config, error) {
 	if cfg.Trino.Port == 0 {
 		cfg.Trino.Port = 8080
 	}
-	
-	// Database validation
-	if cfg.Database.User == "" || cfg.Database.Password == "" || cfg.Database.Host == "" {
-		return nil, fmt.Errorf("database 'user', 'password', and 'host' must be set in config file")
-	}
-	if cfg.Database.Port == 0 {
-		cfg.Database.Port = 3306 // Default MySQL port
-	}
+	applyDatabaseDefaults(&cfg.Databases.Portal)
+	applyDatabaseDefaults(&cfg.Databases.UID)
+	applyDatabaseDefaults(&cfg.Databases.Opt360)
 
-	// UID Database validation
-	if cfg.UIDDatabase.User == "" || cfg.UIDDatabase.Password == "" || cfg.UIDDatabase.Host == "" {
-		return nil, fmt.Errorf("uid_database 'user', 'password', and 'host' must be set in config file")
+	// ── Validation ──────────────────────────────────────────────────────────
+	if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" || cfg.S3.Endpoint == "" {
+		return nil, fmt.Errorf("s3 access_key, secret_key, and endpoint must be set (config.json 's3' section or OPT360_S3_* env vars)")
 	}
-	if cfg.UIDDatabase.Port == 0 {
-		cfg.UIDDatabase.Port = 3306 // Default MySQL port
+	if cfg.S3.BucketName == "" {
+		return nil, fmt.Errorf("s3 bucket_name must be set (config.json 's3' section or OPT360_S3_BUCKET_NAME)")
 	}
-
-	// Opt360 Database validation
-	if cfg.Opt360Database.User == "" || cfg.Opt360Database.Password == "" || cfg.Opt360Database.Host == "" {
-		return nil, fmt.Errorf("opt360_database 'user', 'password', and 'host' must be set in config file")
+	if err := validateDatabase("portal", cfg.Databases.Portal); err != nil {
+		return nil, err
 	}
-	if cfg.Opt360Database.Port == 0 {
-		cfg.Opt360Database.Port = 3306 // Default MySQL port
+	if err := validateDatabase("uid", cfg.Databases.UID); err != nil {
+		return nil, err
+	}
+	if err := validateDatabase("opt360", cfg.Databases.Opt360); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
 }
 
-// LoadConfig loads configuration from config.json file
+func applyDatabaseDefaults(db *DatabaseConfig) {
+	if db.Port == 0 {
+		db.Port = 3306
+	}
+	if db.MaxOpenConns <= 0 {
+		db.MaxOpenConns = 25
+	}
+	if db.MaxIdleConns <= 0 {
+		db.MaxIdleConns = 5
+	}
+	if db.ConnMaxLifetimeSeconds <= 0 {
+		db.ConnMaxLifetimeSeconds = 300
+	}
+}
+
+func validateDatabase(name string, db DatabaseConfig) error {
+	if db.User == "" || db.Password == "" || db.Host == "" {
+		return fmt.Errorf(
+			"databases.%s: user, password, and host must be set (config.json or OPT360_DB_%s_* env vars)",
+			name, strings.ToUpper(name),
+		)
+	}
+	return nil
+}
+
+// applyEnvOverrides layers OPT360_* environment variables over whatever was
+// loaded from the config file. Any field left unset in the environment keeps
+// its file-loaded (or zero) value. This is what lets a Kubernetes ConfigMap
+// (mounted as env vars) and Secret (credentials, also as env vars) fully
+// replace config.json in stage/prod without touching this struct or its
+// callers.
+func applyEnvOverrides(cfg *Config) {
+	cfg.Server.Host = envString("OPT360_SERVER_HOST", cfg.Server.Host)
+	cfg.Server.Port = envInt("OPT360_SERVER_PORT", cfg.Server.Port)
+
+	cfg.S3.Endpoint = envString("OPT360_S3_ENDPOINT", cfg.S3.Endpoint)
+	cfg.S3.BucketName = envString("OPT360_S3_BUCKET_NAME", cfg.S3.BucketName)
+	cfg.S3.Region = envString("OPT360_S3_REGION", cfg.S3.Region)
+	cfg.S3.AccessKey = envString("OPT360_S3_ACCESS_KEY", cfg.S3.AccessKey)
+	cfg.S3.SecretKey = envString("OPT360_S3_SECRET_KEY", cfg.S3.SecretKey)
+
+	applyDatabaseEnvOverrides(&cfg.Databases.Portal, "OPT360_DB_PORTAL")
+	applyDatabaseEnvOverrides(&cfg.Databases.UID, "OPT360_DB_UID")
+	applyDatabaseEnvOverrides(&cfg.Databases.Opt360, "OPT360_DB_OPT360")
+
+	cfg.SIDStore.BaseURL = envString("OPT360_SID_STORE_BASE_URL", cfg.SIDStore.BaseURL)
+	cfg.SIDStore.TimeoutSeconds = envInt("OPT360_SID_STORE_TIMEOUT_SECONDS", cfg.SIDStore.TimeoutSeconds)
+
+	cfg.ClickHouse.Host = envString("OPT360_CLICKHOUSE_HOST", cfg.ClickHouse.Host)
+	cfg.ClickHouse.Port = envInt("OPT360_CLICKHOUSE_PORT", cfg.ClickHouse.Port)
+	cfg.ClickHouse.Database = envString("OPT360_CLICKHOUSE_DATABASE", cfg.ClickHouse.Database)
+	cfg.ClickHouse.Username = envString("OPT360_CLICKHOUSE_USERNAME", cfg.ClickHouse.Username)
+	cfg.ClickHouse.Password = envString("OPT360_CLICKHOUSE_PASSWORD", cfg.ClickHouse.Password)
+	cfg.ClickHouse.Secure = envBool("OPT360_CLICKHOUSE_SECURE", cfg.ClickHouse.Secure)
+
+	cfg.Trino.Host = envString("OPT360_TRINO_HOST", cfg.Trino.Host)
+	cfg.Trino.Port = envInt("OPT360_TRINO_PORT", cfg.Trino.Port)
+	cfg.Trino.Catalog = envString("OPT360_TRINO_CATALOG", cfg.Trino.Catalog)
+	cfg.Trino.Schema = envString("OPT360_TRINO_SCHEMA", cfg.Trino.Schema)
+	cfg.Trino.Username = envString("OPT360_TRINO_USERNAME", cfg.Trino.Username)
+}
+
+// applyDatabaseEnvOverrides applies OPT360_<prefix>_{HOST,PORT,USER,PASSWORD,
+// DATABASE,MAX_OPEN_CONNS,MAX_IDLE_CONNS,CONN_MAX_LIFETIME_SECONDS} for one
+// database. prefix is always one of the 3 literals passed below — never
+// derived from user input.
+func applyDatabaseEnvOverrides(db *DatabaseConfig, prefix string) {
+	db.Host = envString(prefix+"_HOST", db.Host)
+	db.Port = envInt(prefix+"_PORT", db.Port)
+	db.User = envString(prefix+"_USER", db.User)
+	db.Password = envString(prefix+"_PASSWORD", db.Password)
+	db.Database = envString(prefix+"_DATABASE", db.Database)
+	db.MaxOpenConns = envInt(prefix+"_MAX_OPEN_CONNS", db.MaxOpenConns)
+	db.MaxIdleConns = envInt(prefix+"_MAX_IDLE_CONNS", db.MaxIdleConns)
+	db.ConnMaxLifetimeSeconds = envInt(prefix+"_CONN_MAX_LIFETIME_SECONDS", db.ConnMaxLifetimeSeconds)
+}
+
+func envString(key, current string) string {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		return v
+	}
+	return current
+}
+
+func envInt(key string, current int) int {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+		log.Printf("[config] %s=%q is not a valid integer, ignoring", key, v)
+	}
+	return current
+}
+
+func envBool(key string, current bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+		log.Printf("[config] %s=%q is not a valid boolean, ignoring", key, v)
+	}
+	return current
+}
+
+// LoadConfig loads configuration from config.json (if present) plus OPT360_*
+// env var overrides, and caches the result for the life of the process.
 func LoadConfig() (*Config, error) {
 	configOnce.Do(func() {
 		config, configErr = Load("config.json")
@@ -145,10 +291,10 @@ func LoadConfig() (*Config, error) {
 	return config, configErr
 }
 
-// GetDefaultS3Config returns the S3 configuration from config.json
+// GetDefaultS3Config returns the S3 configuration from the loaded config.
 func GetDefaultS3Config() S3Config {
 	cfg, err := LoadConfig()
-    if err != nil {
+	if err != nil {
 		fmt.Println("Error loading config:", err)
 		return S3Config{}
 	}
@@ -170,5 +316,3 @@ func NewS3Client(cfg S3Config) (*s3.S3, error) {
 
 	return s3.New(sess), nil
 }
-
-

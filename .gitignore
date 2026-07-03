@@ -1,0 +1,11 @@
+# Local runtime config — contains real credentials. Copy config.example.json
+# to config.json and fill in real values, or use OPT360_* env vars instead
+# (see config/config.go). Never commit config.json.
+config.json
+
+# Build artifacts
+*.exe
+opt360-portal-backend
+
+# Editor/OS cruft
+.DS_Store

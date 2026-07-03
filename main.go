@@ -15,6 +15,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// toDBConfig maps a config.DatabaseConfig (JSON/env-sourced) onto db.DBConfig
+// (what the db package's Init* functions accept), including per-database pool
+// tuning.
+func toDBConfig(c config.DatabaseConfig) db.DBConfig {
+	return db.DBConfig{
+		User:            c.User,
+		Password:        c.Password,
+		Host:            c.Host,
+		Port:            c.Port,
+		Database:        c.Database,
+		MaxOpenConns:    c.MaxOpenConns,
+		MaxIdleConns:    c.MaxIdleConns,
+		ConnMaxLifetime: c.ConnMaxLifetime(),
+	}
+}
+
 func checkSIDStoreConnectivity(baseURL string, timeoutSeconds int) {
 	timeout := time.Duration(timeoutSeconds) * time.Second
 
@@ -57,15 +73,7 @@ func main() {
 	}
 
 	// Initialize database connection (operator360)
-	dbConfig := db.DBConfig{
-		User:     cfg.Opt360Database.User,
-		Password: cfg.Opt360Database.Password,
-		Host:     cfg.Opt360Database.Host,
-		Port:     cfg.Opt360Database.Port,
-		Database: cfg.Opt360Database.Database,
-	}
-
-	if err := db.InitDB(dbConfig); err != nil {
+	if err := db.InitDB(toDBConfig(cfg.Databases.Opt360)); err != nil {
 		log.Fatal("Failed to initialize database: ", err)
 	}
 	defer db.Close()
@@ -73,30 +81,14 @@ func main() {
 	fmt.Println("Database connection established")
 
 	// Initialize UID database connection
-	uidDBConfig := db.DBConfig{
-		User:     cfg.UIDDatabase.User,
-		Password: cfg.UIDDatabase.Password,
-		Host:     cfg.UIDDatabase.Host,
-		Port:     cfg.UIDDatabase.Port,
-		Database: cfg.UIDDatabase.Database,
-	}
-
-	if err := db.InitUIDDB(uidDBConfig); err != nil {
+	if err := db.InitUIDDB(toDBConfig(cfg.Databases.UID)); err != nil {
 		log.Fatal("Failed to initialize UID database: ", err)
 	}
 
 	fmt.Println("UID Database connection established")
 
 	// Initialize portal database connection (strot_services — user auth)
-	portalDBConfig := db.DBConfig{
-		User:     cfg.Database.User,
-		Password: cfg.Database.Password,
-		Host:     cfg.Database.Host,
-		Port:     cfg.Database.Port,
-		Database: cfg.Database.Database,
-	}
-
-	if err := db.InitPortalDB(portalDBConfig); err != nil {
+	if err := db.InitPortalDB(toDBConfig(cfg.Databases.Portal)); err != nil {
 		log.Fatal("Failed to initialize portal database: ", err)
 	}
 
@@ -112,6 +104,7 @@ func main() {
 		Database: cfg.ClickHouse.Database,
 		Username: cfg.ClickHouse.Username,
 		Password: cfg.ClickHouse.Password,
+		Secure:   cfg.ClickHouse.Secure,
 	})
 	defer db.CloseClickHouseDB()
 
