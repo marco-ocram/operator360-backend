@@ -3,6 +3,10 @@
 # (see config/config.go). Never commit config.json.
 config.json
 
+# K8s/ArgoCD deploy manifests — contains real staging credentials, managed
+# separately in Gitea's infra repo, not this application repo.
+deploy/
+
 # Build artifacts
 *.exe
 opt360-portal-backend
