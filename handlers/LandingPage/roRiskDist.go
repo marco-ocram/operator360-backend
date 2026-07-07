@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -46,7 +47,7 @@ func GetRORiskDist(c *gin.Context) {
 			ro,
 			risk_bucket,
 			COUNT(*)
-		FROM operator360.opt_master
+		FROM ` + config.OptMasterTableRef() + `
 		WHERE risk_bucket IS NOT NULL
 		GROUP BY ro, risk_bucket
 		ORDER BY ro

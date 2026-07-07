@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -34,12 +35,13 @@ func GetEARegistrar(c *gin.Context) {
 	}
 
 	// ── 3. Query distinct reg/ea pairs for the user's RO ──────────────────────
-	rows, err := database.Query(`
+	query := `
 		SELECT DISTINCT reg, ea
-		FROM operator360.opt_master
+		FROM ` + config.OptMasterTableRef() + `
 		WHERE ro = ?
 		ORDER BY reg, ea
-	`, user.RegionalOffice)
+	`
+	rows, err := database.Query(query, user.RegionalOffice)
 	if err != nil {
 		log.Printf("[GetEARegistrar] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -85,4 +87,3 @@ func GetEARegistrar(c *gin.Context) {
 		"regional_office": user.RegionalOffice,
 	})
 }
-

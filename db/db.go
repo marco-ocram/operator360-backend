@@ -1,4 +1,3 @@
-
 package db
 
 import (
@@ -6,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
 )
 
@@ -19,17 +18,15 @@ var (
 	dbOnce sync.Once
 	dbErr  error
 
-	uidDB     *sql.DB
-	uidDBOnce sync.Once
-	uidDBErr  error
-	opt360DBErr  error
+	uidDB       *sql.DB
+	uidDBOnce   sync.Once
+	uidDBErr    error
+	opt360DBErr error
 
 	portalDB     *sql.DB
 	portalDBOnce sync.Once
 	portalDBErr  error
 )
-	
-
 
 // DBConfig holds database connection configuration. Pool settings are
 // per-database on purpose — different databases in this app see very
@@ -244,7 +241,7 @@ func GetUserByADID(adID string) (*models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM opt360_portal_users WHERE user_id = ?`
+	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers + ` WHERE user_id = ?`
 
 	log.Printf("Querying user with ADID: %s", adID)
 
@@ -269,7 +266,7 @@ func GetAllUsers() ([]models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM opt360_portal_users`
+	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers
 
 	rows, err := database.Query(query)
 	if err != nil {
@@ -301,7 +298,7 @@ func UpdateUserGroup(userID string, group string) error {
 		return err
 	}
 
-	query := `UPDATE opt360_portal_users SET ` + "`group`" + ` = ? WHERE user_id = ?`
+	query := `UPDATE ` + config.GetTablesConfig().PortalUsers + ` SET ` + "`group`" + ` = ? WHERE user_id = ?`
 
 	log.Printf("Updating group for user_id: %s to: %s", userID, group)
 
@@ -333,7 +330,7 @@ func GetUsersByGroup(group string) ([]models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM opt360_portal_users WHERE ` + "`group`" + ` = ? ORDER BY user_name`
+	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers + ` WHERE ` + "`group`" + ` = ? ORDER BY user_name`
 
 	rows, err := database.Query(query, group)
 	if err != nil {
@@ -368,7 +365,7 @@ func CreateUser(user models.User) error {
 	}
 
 	query := `
-		INSERT INTO opt360_portal_users (user_id, user_name, ` + "`group`" + `, role, email, status, created_by)
+		INSERT INTO ` + config.GetTablesConfig().PortalUsers + ` (user_id, user_name, ` + "`group`" + `, role, email, status, created_by)
 		VALUES (?, ?, ?, ?, ?, 'active', ?)
 	`
 
@@ -411,7 +408,7 @@ func updateUserField(column, adID, value string) error {
 		return err
 	}
 
-	query := `UPDATE opt360_portal_users SET ` + column + ` = ? WHERE user_id = ?`
+	query := `UPDATE ` + config.GetTablesConfig().PortalUsers + ` SET ` + column + ` = ? WHERE user_id = ?`
 
 	result, err := database.Exec(query, value, adID)
 	if err != nil {
@@ -439,7 +436,7 @@ func UpdateLastLogin(adID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = database.Exec(`UPDATE opt360_portal_users SET last_login = NOW() WHERE user_id = ?`, adID)
+	_, err = database.Exec(`UPDATE `+config.GetTablesConfig().PortalUsers+` SET last_login = NOW() WHERE user_id = ?`, adID)
 	if err != nil {
 		log.Printf("Failed to update last_login for user_id '%s': %v", adID, err)
 		return fmt.Errorf("failed to update last_login: %w", err)
@@ -456,7 +453,7 @@ func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
 	}
 
 	query := `
-		INSERT INTO ` + "`mark_anomaly`" + ` (
+		INSERT INTO ` + "`" + config.GetTablesConfig().MarkAnomaly + "`" + ` (
 			eid, anomaly_category, anomaly_code, anomaly_name, error_category,
 			date_created, enrolnment_type, opt_district, opt_state, opt_id,
 			pkt_source, pkt_updt_type, remarks, station_machine_code, station_no
@@ -492,268 +489,6 @@ func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
 	return nil
 }
 
-// OperatorStatus holds operator status information
-type OperatorStatus struct {
-	UserStatus string `json:"user_status"`
-	UserName   string `json:"user_name"`
-	UserUID    int64  `json:"user_uid"`
-}
-
-// ActiveOperator holds active operator information
-type ActiveOperator struct {
-	OptID       string   `json:"opt_id"`
-	UserStatus  int      `json:"user_status"`
-	UserName    string   `json:"user_name"`
-	RiskScore   *float64 `json:"risk_score"`
-	EAOrgName   string   `json:"ea_org_name"`
-	RegOrgName  string   `json:"reg_org_name"`
-	RegROName   string   `json:"reg_ro_name"`
-}
-
-// GetOperatorStatusByUserCode retrieves operator status from UID database
-func GetOperatorStatusByUserCode(userCode string) (*OperatorStatus, error) {
-	database, err := GetUIDDB()
-	if err != nil {
-		log.Printf("UID Database connection error: %v", err)
-		return nil, err
-	}
-
-	query := `
-		SELECT user_status, user_name, user_uid 
-		FROM user 
-		WHERE user_code = ?
-	`
-
-	log.Printf("Querying operator with user_code: %s", userCode)
-
-	var status OperatorStatus
-	var userUID sql.NullInt64
-	err = database.QueryRow(query, userCode).Scan(
-		&status.UserStatus,
-		&status.UserName,
-		&userUID,
-	)
-
-	if err == sql.ErrNoRows {
-		log.Printf("No operator found with user_code: %s", userCode)
-		return nil, fmt.Errorf("operator not found")
-	}
-	if err != nil {
-		log.Printf("Query error for user_code '%s': %v", userCode, err)
-		return nil, fmt.Errorf("failed to query operator: %w", err)
-	}
-
-	// Handle NULL user_uid
-	if userUID.Valid {
-		status.UserUID = userUID.Int64
-	} else {
-		status.UserUID = 0
-	}
-
-	log.Printf("Successfully found operator: %s (Status: %s, UID: %d)", status.UserName, status.UserStatus, status.UserUID)
-	return &status, nil
-}
-
-// GetActiveOperators retrieves active operators using an application-level join
-// across data_platform and uidmasterv1_1.
-func GetActiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	// Step 1: Query data_platform for all operators in this RO
-	database, err := GetDB()
-	if err != nil {
-		log.Printf("DB connection error: %v", err)
-		return nil, err
-	}
-
-	type optRow struct {
-		optID, regOrgName, eaOrgName, regROName string
-		riskScore *float64
-	}
-
-	optResultRows, err := database.Query(`
-		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
-		FROM data_platform.OptDetails
-		WHERE reg_ro_name = ?`, regionalOffice)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query operator details: %w", err)
-	}
-	defer optResultRows.Close()
-
-	var optRows []optRow
-	for optResultRows.Next() {
-		var r optRow
-		var rs sql.NullFloat64
-		if err := optResultRows.Scan(&r.optID, &rs, &r.regOrgName, &r.eaOrgName, &r.regROName); err != nil {
-			log.Printf("Failed to scan opt row: %v", err)
-			continue
-		}
-		if rs.Valid {
-			v := rs.Float64
-			r.riskScore = &v
-		}
-		optRows = append(optRows, r)
-	}
-	if err := optResultRows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating opt rows: %w", err)
-	}
-	if len(optRows) == 0 {
-		return []ActiveOperator{}, nil
-	}
-
-	// Step 2: Query UID DB for user_status/user_name for these opt_ids
-	uidDB, err := GetUIDDB()
-	if err != nil {
-		log.Printf("UID DB connection error: %v", err)
-		return nil, err
-	}
-
-	ids := make([]interface{}, 0, len(optRows))
-	phs := make([]string, 0, len(optRows))
-	for _, r := range optRows {
-		ids = append(ids, r.optID)
-		phs = append(phs, "?")
-	}
-	uidResultRows, err := uidDB.Query(
-		`SELECT UPPER(user_code), user_status, user_name FROM user WHERE user_code IN (`+strings.Join(phs, ",")+`)`,
-		ids...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query UID users: %w", err)
-	}
-	defer uidResultRows.Close()
-
-	type userInfo struct{ status, name string }
-	userMap := make(map[string]userInfo)
-	for uidResultRows.Next() {
-		var code, status, name string
-		if err := uidResultRows.Scan(&code, &status, &name); err != nil {
-			continue
-		}
-		userMap[code] = userInfo{status, name}
-	}
-
-	// Step 3: Merge — keep only active users (user_status = '1')
-	var operators []ActiveOperator
-	for _, r := range optRows {
-		info, ok := userMap[r.optID]
-		if !ok || info.status != "1" {
-			continue
-		}
-		op := ActiveOperator{
-			OptID:      r.optID,
-			UserStatus: 1,
-			UserName:   info.name,
-			RiskScore:  r.riskScore,
-			RegOrgName: r.regOrgName,
-			EAOrgName:  r.eaOrgName,
-			RegROName:  r.regROName,
-		}
-		operators = append(operators, op)
-	}
-
-	log.Printf("Successfully retrieved %d active operators", len(operators))
-	return operators, nil
-}
-
-// GetInactiveOperators retrieves inactive operators using an application-level join
-// across data_platform and uidmasterv1_1.
-func GetInactiveOperators(regionalOffice string) ([]ActiveOperator, error) {
-	// Step 1: Query data_platform for all operators in this RO
-	database, err := GetDB()
-	if err != nil {
-		log.Printf("DB connection error: %v", err)
-		return nil, err
-	}
-
-	type optRow struct {
-		optID, regOrgName, eaOrgName, regROName string
-		riskScore *float64
-	}
-
-	optResultRows, err := database.Query(`
-		SELECT opt_id, risk_score, reg_org_name, ea_org_name, reg_ro_name
-		FROM data_platform.OptDetails
-		WHERE reg_ro_name = ?`, regionalOffice)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query operator details: %w", err)
-	}
-	defer optResultRows.Close()
-
-	var optRows []optRow
-	for optResultRows.Next() {
-		var r optRow
-		var rs sql.NullFloat64
-		if err := optResultRows.Scan(&r.optID, &rs, &r.regOrgName, &r.eaOrgName, &r.regROName); err != nil {
-			log.Printf("Failed to scan opt row: %v", err)
-			continue
-		}
-		if rs.Valid {
-			v := rs.Float64
-			r.riskScore = &v
-		}
-		optRows = append(optRows, r)
-	}
-	if err := optResultRows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating opt rows: %w", err)
-	}
-	if len(optRows) == 0 {
-		return []ActiveOperator{}, nil
-	}
-
-	// Step 2: Query UID DB for user_status/user_name for these opt_ids
-	uidDB, err := GetUIDDB()
-	if err != nil {
-		log.Printf("UID DB connection error: %v", err)
-		return nil, err
-	}
-
-	ids := make([]interface{}, 0, len(optRows))
-	phs := make([]string, 0, len(optRows))
-	for _, r := range optRows {
-		ids = append(ids, r.optID)
-		phs = append(phs, "?")
-	}
-	uidResultRows, err := uidDB.Query(
-		`SELECT UPPER(user_code), user_status, user_name FROM user WHERE user_code IN (`+strings.Join(phs, ",")+`)`,
-		ids...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query UID users: %w", err)
-	}
-	defer uidResultRows.Close()
-
-	type userInfo struct{ status, name string }
-	userMap := make(map[string]userInfo)
-	for uidResultRows.Next() {
-		var code, status, name string
-		if err := uidResultRows.Scan(&code, &status, &name); err != nil {
-			continue
-		}
-		userMap[code] = userInfo{status, name}
-	}
-
-	// Step 3: Merge — keep only inactive users (user_status != '1')
-	var operators []ActiveOperator
-	for _, r := range optRows {
-		info, ok := userMap[r.optID]
-		if !ok || info.status == "1" {
-			continue
-		}
-		op := ActiveOperator{
-			OptID:      r.optID,
-			UserStatus: 0,
-			UserName:   info.name,
-			RiskScore:  r.riskScore,
-			RegOrgName: r.regOrgName,
-			EAOrgName:  r.eaOrgName,
-			RegROName:  r.regROName,
-		}
-		operators = append(operators, op)
-	}
-
-	log.Printf("Successfully retrieved %d inactive operators", len(operators))
-	return operators, nil
-}
-
 // GetDataPathByOptID retrieves the data_path for a single operator from opt_master.
 // This is the source of truth for where an operator's files live in S3 and
 // must be used instead of deriving the path from RO/State/District/OptID.
@@ -765,7 +500,7 @@ func GetDataPathByOptID(optID string) (string, error) {
 	}
 
 	var dataPath sql.NullString
-	err = database.QueryRow(`SELECT data_path FROM opt_master WHERE id = ?`, optID).Scan(&dataPath)
+	err = database.QueryRow("SELECT data_path FROM "+config.OptMasterTableRef()+" WHERE id = ?", optID).Scan(&dataPath)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("operator not found: %s", optID)
 	}

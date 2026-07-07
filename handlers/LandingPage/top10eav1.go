@@ -4,11 +4,13 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
 	"github.com/gin-gonic/gin"
 )
+
 // Top10EAv1Entry holds risk counts for a single EA.
 type Top10EAv1Entry struct {
 	HighRiskCount int `json:"high_risk_count"`
@@ -49,7 +51,7 @@ func GetTop10EAsV1(c *gin.Context) {
 			SUM(CASE WHEN risk_bucket = 'High'   THEN 1 ELSE 0 END) AS high_risk,
 			SUM(CASE WHEN risk_bucket = 'Medium' THEN 1 ELSE 0 END) AS med_risk,
 			SUM(CASE WHEN risk_bucket = 'Low'    THEN 1 ELSE 0 END) AS low_risk
-		FROM operator360.opt_master
+		FROM ` + config.OptMasterTableRef() + `
 		WHERE ro = ?
 		GROUP BY ea
 		ORDER BY (
@@ -70,8 +72,6 @@ func GetTop10EAsV1(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-
-
 
 	// ── 4. Scan rows ───────────────────────────────────────────────────────────
 	eaMap := make(map[string]Top10EAv1Entry)
@@ -106,5 +106,3 @@ func GetTop10EAsV1(c *gin.Context) {
 		"regional_office": user.RegionalOffice,
 	})
 }
-
-

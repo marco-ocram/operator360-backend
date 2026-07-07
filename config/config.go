@@ -93,11 +93,23 @@ type ServerConfig struct {
 	Port int    `json:"port"`
 }
 
+// TablesConfig holds the bare table names used across the app's SQL queries.
+// Staging and prod have different table names for the same logical data, so
+// these must never be hardcoded string literals in handler/db code — every
+// query should build its FROM/JOIN clause from these fields (combined with
+// the relevant DatabaseConfig.Database for the schema prefix) instead.
+type TablesConfig struct {
+	OptMaster   string `json:"opt_master"`   // operator360 DB — operator master/risk data
+	PortalUsers string `json:"portal_users"` // portal DB — opt360-portal-ui user accounts
+	MarkAnomaly string `json:"mark_anomaly"` // portal DB — reported anomaly records
+}
+
 // Config holds the entire configuration structure.
 type Config struct {
 	Server     ServerConfig     `json:"server"`
 	S3         S3Config         `json:"s3"`
 	Databases  DatabasesConfig  `json:"databases"`
+	Tables     TablesConfig     `json:"tables"`
 	SIDStore   SIDStoreConfig   `json:"sid_store"`
 	ClickHouse ClickHouseConfig `json:"clickhouse"`
 	Trino      TrinoConfig      `json:"trino"`
@@ -156,6 +168,15 @@ func Load(path string) (*Config, error) {
 	applyDatabaseDefaults(&cfg.Databases.Portal)
 	applyDatabaseDefaults(&cfg.Databases.UID)
 	applyDatabaseDefaults(&cfg.Databases.Opt360)
+	if cfg.Tables.OptMaster == "" {
+		cfg.Tables.OptMaster = "opt_master"
+	}
+	if cfg.Tables.PortalUsers == "" {
+		cfg.Tables.PortalUsers = "opt360_portal_users"
+	}
+	if cfg.Tables.MarkAnomaly == "" {
+		cfg.Tables.MarkAnomaly = "mark_anomaly"
+	}
 
 	// ── Validation ──────────────────────────────────────────────────────────
 	if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" || cfg.S3.Endpoint == "" {
@@ -221,6 +242,10 @@ func applyEnvOverrides(cfg *Config) {
 	applyDatabaseEnvOverrides(&cfg.Databases.Portal, "OPT360_DB_PORTAL")
 	applyDatabaseEnvOverrides(&cfg.Databases.UID, "OPT360_DB_UID")
 	applyDatabaseEnvOverrides(&cfg.Databases.Opt360, "OPT360_DB_OPT360")
+
+	cfg.Tables.OptMaster = envString("OPT360_TABLE_OPT_MASTER", cfg.Tables.OptMaster)
+	cfg.Tables.PortalUsers = envString("OPT360_TABLE_PORTAL_USERS", cfg.Tables.PortalUsers)
+	cfg.Tables.MarkAnomaly = envString("OPT360_TABLE_MARK_ANOMALY", cfg.Tables.MarkAnomaly)
 
 	cfg.SIDStore.BaseURL = envString("OPT360_SID_STORE_BASE_URL", cfg.SIDStore.BaseURL)
 	cfg.SIDStore.TimeoutSeconds = envInt("OPT360_SID_STORE_TIMEOUT_SECONDS", cfg.SIDStore.TimeoutSeconds)
@@ -300,6 +325,33 @@ func GetDefaultS3Config() S3Config {
 	}
 
 	return cfg.S3
+}
+
+// GetTablesConfig returns the table-name configuration from the loaded config.
+func GetTablesConfig() TablesConfig {
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		return TablesConfig{
+			OptMaster:   "opt_master",
+			PortalUsers: "opt360_portal_users",
+			MarkAnomaly: "mark_anomaly",
+		}
+	}
+	return cfg.Tables
+}
+
+// OptMasterTableRef returns the schema-qualified opt_master table reference
+// (e.g. "operator360.opt_master") to drop directly into a FROM/JOIN clause,
+// built from config instead of a hardcoded literal since staging/prod use
+// different table names.
+func OptMasterTableRef() string {
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		return "operator360.opt_master"
+	}
+	return cfg.Databases.Opt360.Database + "." + cfg.Tables.OptMaster
 }
 
 // NewS3Client creates a new S3 client with the given configuration

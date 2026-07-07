@@ -84,5 +84,3 @@ func GetKPIData(c *gin.Context) {
 	log.Printf("[GetKPIData] Serving key=%s user=%s", fileName, user.ADID)
 	c.JSON(http.StatusOK, kpiData)
 }
-
-

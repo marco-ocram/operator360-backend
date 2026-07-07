@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -36,7 +37,7 @@ func GetHighestRiskOperator(c *gin.Context) {
 	// ── 3. Query ───────────────────────────────────────────────────────────────
 	query := `
 		SELECT id, NAME, risk_score
-		FROM operator360.opt_master
+		FROM ` + config.OptMasterTableRef() + `
 		WHERE ro = ?
 		ORDER BY risk_score DESC
 		LIMIT 1`
@@ -56,7 +57,7 @@ func GetHighestRiskOperator(c *gin.Context) {
 	}
 
 	// ── 4. High-risk count ─────────────────────────────────────────────────────
-	countQuery := `SELECT COUNT(*) FROM operator360.opt_master WHERE ro = ? AND risk_bucket = 'High'`
+	countQuery := "SELECT COUNT(*) FROM " + config.OptMasterTableRef() + " WHERE ro = ? AND risk_bucket = 'High'"
 	var highOptCount int
 	if err := database.QueryRow(countQuery, user.RegionalOffice).Scan(&highOptCount); err != nil {
 		log.Printf("[GetHighestRiskOperator] Count scan error for ro=%s: %v", user.RegionalOffice, err)

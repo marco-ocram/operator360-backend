@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -169,7 +170,7 @@ func SearchOperators(c *gin.Context) {
 	if len(whereClauses) > 0 {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
-	fromSQL := "FROM operator360.opt_master"
+	fromSQL := "FROM " + config.OptMasterTableRef()
 	selectCols := `SELECT id, uid, name, phone, email, risk_score, risk_bucket, reg, reg_code, ea, ea_code, ro, district, state, last_sync_timestamp, data_path, status`
 
 	// ── 7. Count ───────────────────────────────────────────────────────────────

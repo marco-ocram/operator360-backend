@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 
 	"github.com/gin-gonic/gin"
@@ -32,7 +33,7 @@ func GetStateDistrict(c *gin.Context) {
 	}
 
 	// ── 3. Fetch distinct states ───────────────────────────────────────────────
-	stateRows, err := database.Query(`SELECT DISTINCT state FROM operator360.opt_master WHERE state IS NOT NULL ORDER BY state`)
+	stateRows, err := database.Query("SELECT DISTINCT state FROM " + config.OptMasterTableRef() + " WHERE state IS NOT NULL ORDER BY state")
 	if err != nil {
 		log.Printf("[GetStateDistrict] State query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -66,7 +67,7 @@ func GetStateDistrict(c *gin.Context) {
 	}
 
 	// ── 4. Fetch distinct districts ────────────────────────────────────────────
-	districtRows, err := database.Query(`SELECT DISTINCT district FROM operator360.opt_master WHERE district IS NOT NULL ORDER BY district`)
+	districtRows, err := database.Query("SELECT DISTINCT district FROM " + config.OptMasterTableRef() + " WHERE district IS NOT NULL ORDER BY district")
 	if err != nil {
 		log.Printf("[GetStateDistrict] District query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
