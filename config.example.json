@@ -42,6 +42,11 @@
             "conn_max_lifetime_seconds": 300
         }
     },
+    "tables": {
+        "opt_master": { "database": "operator360", "table": "opt_master" },
+        "portal_users": { "database": "strot_services", "table": "opt360_portal_users" },
+        "mark_anomaly": { "database": "strot_services", "table": "mark_anomaly" }
+    },
     "sid_store": {
         "base_url": "http://localhost:9001",
         "timeout_seconds": 15

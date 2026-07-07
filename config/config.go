@@ -93,15 +93,36 @@ type ServerConfig struct {
 	Port int    `json:"port"`
 }
 
-// TablesConfig holds the bare table names used across the app's SQL queries.
-// Staging and prod have different table names for the same logical data, so
-// these must never be hardcoded string literals in handler/db code — every
-// query should build its FROM/JOIN clause from these fields (combined with
-// the relevant DatabaseConfig.Database for the schema prefix) instead.
+// TableRef identifies one table's location: the schema/database it lives in
+// and its table name, both supplied independently via config since staging
+// and prod can each use different values for either. Deliberately not
+// derived from DatabasesConfig — the database a table lives in is a property
+// of that table, not necessarily the same as any one connection's own
+// "default" database.
+type TableRef struct {
+	Database string `json:"database"`
+	Table    string `json:"table"`
+}
+
+// String returns the schema-qualified reference (e.g. "operator360.opt_master")
+// to drop directly into a FROM/JOIN clause. If Database is unset, returns the
+// bare table name and relies on the query's connection default database.
+func (t TableRef) String() string {
+	if t.Database == "" {
+		return t.Table
+	}
+	return t.Database + "." + t.Table
+}
+
+// TablesConfig holds the location of every table used across the app's SQL
+// queries. Staging and prod have different database and table names for the
+// same logical data, so these must never be hardcoded string literals in
+// handler/db code — every query should build its FROM/JOIN clause from these
+// fields instead.
 type TablesConfig struct {
-	OptMaster   string `json:"opt_master"`   // operator360 DB — operator master/risk data
-	PortalUsers string `json:"portal_users"` // portal DB — opt360-portal-ui user accounts
-	MarkAnomaly string `json:"mark_anomaly"` // portal DB — reported anomaly records
+	OptMaster   TableRef `json:"opt_master"`   // operator master/risk data
+	PortalUsers TableRef `json:"portal_users"` // opt360-portal-ui user accounts
+	MarkAnomaly TableRef `json:"mark_anomaly"` // reported anomaly records
 }
 
 // Config holds the entire configuration structure.
@@ -168,15 +189,9 @@ func Load(path string) (*Config, error) {
 	applyDatabaseDefaults(&cfg.Databases.Portal)
 	applyDatabaseDefaults(&cfg.Databases.UID)
 	applyDatabaseDefaults(&cfg.Databases.Opt360)
-	if cfg.Tables.OptMaster == "" {
-		cfg.Tables.OptMaster = "opt_master"
-	}
-	if cfg.Tables.PortalUsers == "" {
-		cfg.Tables.PortalUsers = "opt360_portal_users"
-	}
-	if cfg.Tables.MarkAnomaly == "" {
-		cfg.Tables.MarkAnomaly = "mark_anomaly"
-	}
+	applyTableRefDefaults(&cfg.Tables.OptMaster, "operator360", "opt_master")
+	applyTableRefDefaults(&cfg.Tables.PortalUsers, "strot_services", "opt360_portal_users")
+	applyTableRefDefaults(&cfg.Tables.MarkAnomaly, "strot_services", "mark_anomaly")
 
 	// ── Validation ──────────────────────────────────────────────────────────
 	if cfg.S3.AccessKey == "" || cfg.S3.SecretKey == "" || cfg.S3.Endpoint == "" {
@@ -196,6 +211,15 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func applyTableRefDefaults(ref *TableRef, defaultDatabase, defaultTable string) {
+	if ref.Database == "" {
+		ref.Database = defaultDatabase
+	}
+	if ref.Table == "" {
+		ref.Table = defaultTable
+	}
 }
 
 func applyDatabaseDefaults(db *DatabaseConfig) {
@@ -243,9 +267,9 @@ func applyEnvOverrides(cfg *Config) {
 	applyDatabaseEnvOverrides(&cfg.Databases.UID, "OPT360_DB_UID")
 	applyDatabaseEnvOverrides(&cfg.Databases.Opt360, "OPT360_DB_OPT360")
 
-	cfg.Tables.OptMaster = envString("OPT360_TABLE_OPT_MASTER", cfg.Tables.OptMaster)
-	cfg.Tables.PortalUsers = envString("OPT360_TABLE_PORTAL_USERS", cfg.Tables.PortalUsers)
-	cfg.Tables.MarkAnomaly = envString("OPT360_TABLE_MARK_ANOMALY", cfg.Tables.MarkAnomaly)
+	applyTableRefEnvOverrides(&cfg.Tables.OptMaster, "OPT360_TABLE_OPT_MASTER")
+	applyTableRefEnvOverrides(&cfg.Tables.PortalUsers, "OPT360_TABLE_PORTAL_USERS")
+	applyTableRefEnvOverrides(&cfg.Tables.MarkAnomaly, "OPT360_TABLE_MARK_ANOMALY")
 
 	cfg.SIDStore.BaseURL = envString("OPT360_SID_STORE_BASE_URL", cfg.SIDStore.BaseURL)
 	cfg.SIDStore.TimeoutSeconds = envInt("OPT360_SID_STORE_TIMEOUT_SECONDS", cfg.SIDStore.TimeoutSeconds)
@@ -262,6 +286,14 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.Trino.Catalog = envString("OPT360_TRINO_CATALOG", cfg.Trino.Catalog)
 	cfg.Trino.Schema = envString("OPT360_TRINO_SCHEMA", cfg.Trino.Schema)
 	cfg.Trino.Username = envString("OPT360_TRINO_USERNAME", cfg.Trino.Username)
+}
+
+// applyTableRefEnvOverrides applies <prefix>_DATABASE and <prefix>_TABLE for
+// one table. prefix is always one of the 3 literals passed below — never
+// derived from user input.
+func applyTableRefEnvOverrides(ref *TableRef, prefix string) {
+	ref.Database = envString(prefix+"_DATABASE", ref.Database)
+	ref.Table = envString(prefix+"_TABLE", ref.Table)
 }
 
 // applyDatabaseEnvOverrides applies OPT360_<prefix>_{HOST,PORT,USER,PASSWORD,
@@ -327,15 +359,15 @@ func GetDefaultS3Config() S3Config {
 	return cfg.S3
 }
 
-// GetTablesConfig returns the table-name configuration from the loaded config.
+// GetTablesConfig returns the table configuration from the loaded config.
 func GetTablesConfig() TablesConfig {
 	cfg, err := LoadConfig()
 	if err != nil {
 		fmt.Println("Error loading config:", err)
 		return TablesConfig{
-			OptMaster:   "opt_master",
-			PortalUsers: "opt360_portal_users",
-			MarkAnomaly: "mark_anomaly",
+			OptMaster:   TableRef{Database: "operator360", Table: "opt_master"},
+			PortalUsers: TableRef{Database: "strot_services", Table: "opt360_portal_users"},
+			MarkAnomaly: TableRef{Database: "strot_services", Table: "mark_anomaly"},
 		}
 	}
 	return cfg.Tables
@@ -343,15 +375,24 @@ func GetTablesConfig() TablesConfig {
 
 // OptMasterTableRef returns the schema-qualified opt_master table reference
 // (e.g. "operator360.opt_master") to drop directly into a FROM/JOIN clause,
-// built from config instead of a hardcoded literal since staging/prod use
-// different table names.
+// built entirely from config instead of a hardcoded literal — both the
+// database and table name are supplied independently via config.tables.opt_master.
 func OptMasterTableRef() string {
-	cfg, err := LoadConfig()
-	if err != nil {
-		fmt.Println("Error loading config:", err)
-		return "operator360.opt_master"
-	}
-	return cfg.Databases.Opt360.Database + "." + cfg.Tables.OptMaster
+	return GetTablesConfig().OptMaster.String()
+}
+
+// PortalUsersTableRef returns the schema-qualified opt360_portal_users table
+// reference (e.g. "strot_services.opt360_portal_users"), built entirely from
+// config.tables.portal_users.
+func PortalUsersTableRef() string {
+	return GetTablesConfig().PortalUsers.String()
+}
+
+// MarkAnomalyTableRef returns the schema-qualified mark_anomaly table
+// reference (e.g. "strot_services.mark_anomaly"), built entirely from
+// config.tables.mark_anomaly.
+func MarkAnomalyTableRef() string {
+	return GetTablesConfig().MarkAnomaly.String()
 }
 
 // NewS3Client creates a new S3 client with the given configuration

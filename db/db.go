@@ -241,7 +241,7 @@ func GetUserByADID(adID string) (*models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers + ` WHERE user_id = ?`
+	query := `SELECT ` + userColumns + ` FROM ` + config.PortalUsersTableRef() + ` WHERE user_id = ?`
 
 	log.Printf("Querying user with ADID: %s", adID)
 
@@ -266,7 +266,7 @@ func GetAllUsers() ([]models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers
+	query := `SELECT ` + userColumns + ` FROM ` + config.PortalUsersTableRef()
 
 	rows, err := database.Query(query)
 	if err != nil {
@@ -298,7 +298,7 @@ func UpdateUserGroup(userID string, group string) error {
 		return err
 	}
 
-	query := `UPDATE ` + config.GetTablesConfig().PortalUsers + ` SET ` + "`group`" + ` = ? WHERE user_id = ?`
+	query := `UPDATE ` + config.PortalUsersTableRef() + ` SET ` + "`group`" + ` = ? WHERE user_id = ?`
 
 	log.Printf("Updating group for user_id: %s to: %s", userID, group)
 
@@ -330,7 +330,7 @@ func GetUsersByGroup(group string) ([]models.User, error) {
 		return nil, err
 	}
 
-	query := `SELECT ` + userColumns + ` FROM ` + config.GetTablesConfig().PortalUsers + ` WHERE ` + "`group`" + ` = ? ORDER BY user_name`
+	query := `SELECT ` + userColumns + ` FROM ` + config.PortalUsersTableRef() + ` WHERE ` + "`group`" + ` = ? ORDER BY user_name`
 
 	rows, err := database.Query(query, group)
 	if err != nil {
@@ -365,7 +365,7 @@ func CreateUser(user models.User) error {
 	}
 
 	query := `
-		INSERT INTO ` + config.GetTablesConfig().PortalUsers + ` (user_id, user_name, ` + "`group`" + `, role, email, status, created_by)
+		INSERT INTO ` + config.PortalUsersTableRef() + ` (user_id, user_name, ` + "`group`" + `, role, email, status, created_by)
 		VALUES (?, ?, ?, ?, ?, 'active', ?)
 	`
 
@@ -408,7 +408,7 @@ func updateUserField(column, adID, value string) error {
 		return err
 	}
 
-	query := `UPDATE ` + config.GetTablesConfig().PortalUsers + ` SET ` + column + ` = ? WHERE user_id = ?`
+	query := `UPDATE ` + config.PortalUsersTableRef() + ` SET ` + column + ` = ? WHERE user_id = ?`
 
 	result, err := database.Exec(query, value, adID)
 	if err != nil {
@@ -436,7 +436,7 @@ func UpdateLastLogin(adID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = database.Exec(`UPDATE `+config.GetTablesConfig().PortalUsers+` SET last_login = NOW() WHERE user_id = ?`, adID)
+	_, err = database.Exec(`UPDATE `+config.PortalUsersTableRef()+` SET last_login = NOW() WHERE user_id = ?`, adID)
 	if err != nil {
 		log.Printf("Failed to update last_login for user_id '%s': %v", adID, err)
 		return fmt.Errorf("failed to update last_login: %w", err)
@@ -453,7 +453,7 @@ func InsertMarkAnomaly(anomaly *models.MarkAnomaly) error {
 	}
 
 	query := `
-		INSERT INTO ` + "`" + config.GetTablesConfig().MarkAnomaly + "`" + ` (
+		INSERT INTO ` + config.MarkAnomalyTableRef() + ` (
 			eid, anomaly_category, anomaly_code, anomaly_name, error_category,
 			date_created, enrolnment_type, opt_district, opt_state, opt_id,
 			pkt_source, pkt_updt_type, remarks, station_machine_code, station_no
