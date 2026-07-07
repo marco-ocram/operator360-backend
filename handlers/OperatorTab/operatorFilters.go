@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -86,7 +85,7 @@ func GetOperatorFilters(c *gin.Context) {
 // of literals passed by callers in this file (never user input), so building the
 // query by string concatenation here is safe.
 func fetchNameCodePairs(database *sql.DB, nameCol, codeCol, ro string) ([]models.NameCode, error) {
-	query := "SELECT DISTINCT " + nameCol + ", " + codeCol + " FROM " + config.OptMasterTableRef() + " WHERE " + nameCol + " IS NOT NULL AND " + codeCol + " IS NOT NULL"
+	query := "SELECT DISTINCT " + nameCol + ", " + codeCol + " FROM operator360.opt_master WHERE " + nameCol + " IS NOT NULL AND " + codeCol + " IS NOT NULL"
 	args := []interface{}{}
 	if ro != "" {
 		query += " AND ro = ?"
@@ -115,7 +114,7 @@ func fetchNameCodePairs(database *sql.DB, nameCol, codeCol, ro string) ([]models
 // optionally scoped to ro. col is always one of a small fixed set of literals
 // passed by callers in this file (never user input).
 func fetchDistinctColumn(database *sql.DB, col, ro string) ([]string, error) {
-	query := "SELECT DISTINCT " + col + " FROM " + config.OptMasterTableRef() + " WHERE " + col + " IS NOT NULL"
+	query := "SELECT DISTINCT " + col + " FROM operator360.opt_master WHERE " + col + " IS NOT NULL"
 	args := []interface{}{}
 	if ro != "" {
 		query += " AND ro = ?"

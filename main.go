@@ -72,8 +72,21 @@ func main() {
 		log.Fatal("Failed to load config.json: ", err)
 	}
 
-	// Initialize database connection (operator360)
-	if err := db.InitDB(toDBConfig(cfg.Databases.Opt360)); err != nil {
+	// Initialize database connection (operator360).
+	//
+	// Hardcoded per explicit instruction rather than sourced from
+	// cfg.Databases.Opt360: the opt_master table lives on a different host
+	// than what config was resolving, so its connection is pinned directly
+	// here instead of going through config.json/OPT360_DB_OPT360_*. This
+	// means rotating these credentials requires a code change + rebuild,
+	// unlike every other connection in this app.
+	if err := db.InitDB(db.DBConfig{
+		Host:     "10.10.108.224",
+		Port:     3306,
+		User:     "Data_platform_W",
+		Password: "Dataplat_7634",
+		Database: "operator360",
+	}); err != nil {
 		log.Fatal("Failed to initialize database: ", err)
 	}
 	defer db.Close()
@@ -133,5 +146,3 @@ func main() {
 	fmt.Printf("Server starting on http://%s\n", serverAddr)
 	router.Run(serverAddr)
 }
-
-

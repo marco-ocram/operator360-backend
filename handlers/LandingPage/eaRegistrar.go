@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -37,7 +36,7 @@ func GetEARegistrar(c *gin.Context) {
 	// ── 3. Query distinct reg/ea pairs for the user's RO ──────────────────────
 	query := `
 		SELECT DISTINCT reg, ea
-		FROM ` + config.OptMasterTableRef() + `
+		FROM operator360.opt_master
 		WHERE ro = ?
 		ORDER BY reg, ea
 	`

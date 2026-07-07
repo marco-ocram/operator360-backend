@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 
-	"opt360-portal-backend/config"
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
 
@@ -51,7 +50,7 @@ func GetTop10regV1(c *gin.Context) {
 			SUM(CASE WHEN risk_bucket = 'High'   THEN 1 ELSE 0 END) AS high_risk,
 			SUM(CASE WHEN risk_bucket = 'Medium' THEN 1 ELSE 0 END) AS med_risk,
 			SUM(CASE WHEN risk_bucket = 'Low'    THEN 1 ELSE 0 END) AS low_risk
-		FROM ` + config.OptMasterTableRef() + `
+		FROM operator360.opt_master
 		WHERE ro = ?
 		GROUP BY reg
 		ORDER BY (

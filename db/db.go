@@ -500,7 +500,7 @@ func GetDataPathByOptID(optID string) (string, error) {
 	}
 
 	var dataPath sql.NullString
-	err = database.QueryRow("SELECT data_path FROM "+config.OptMasterTableRef()+" WHERE id = ?", optID).Scan(&dataPath)
+	err = database.QueryRow("SELECT data_path FROM operator360.opt_master WHERE id = ?", optID).Scan(&dataPath)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("operator not found: %s", optID)
 	}

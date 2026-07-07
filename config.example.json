@@ -30,20 +30,10 @@
             "max_open_conns": 15,
             "max_idle_conns": 5,
             "conn_max_lifetime_seconds": 300
-        },
-        "opt360": {
-            "host": "CHANGE_ME",
-            "port": 3306,
-            "user": "CHANGE_ME",
-            "password": "CHANGE_ME",
-            "database": "operator360",
-            "max_open_conns": 25,
-            "max_idle_conns": 5,
-            "conn_max_lifetime_seconds": 300
         }
     },
+    "_comment_opt_master": "The opt_master connection and table reference are hardcoded in main.go / query call sites (operator360.opt_master on a pinned host) -- not config-driven. See main.go's db.InitDB call.",
     "tables": {
-        "opt_master": { "database": "operator360", "table": "opt_master" },
         "portal_users": { "database": "strot_services", "table": "opt360_portal_users" },
         "mark_anomaly": { "database": "strot_services", "table": "mark_anomaly" }
     },

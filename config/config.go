@@ -52,14 +52,18 @@ func (d DatabaseConfig) ConnMaxLifetime() time.Duration {
 	return time.Duration(d.ConnMaxLifetimeSeconds) * time.Second
 }
 
-// DatabasesConfig groups this app's three MySQL connections. Grouped (rather
-// than three top-level Config fields, one of them ambiguously named
-// "database") so the shape reads clearly and maps cleanly onto three separate
-// ConfigMap/Secret pairs when this moves to stage/prod.
+// DatabasesConfig groups this app's MySQL connections. Grouped (rather than
+// top-level Config fields, one of them ambiguously named "database") so the
+// shape reads clearly and maps cleanly onto separate ConfigMap/Secret pairs
+// when this moves to stage/prod.
+//
+// The opt360 (operator360/opt_master) connection is deliberately NOT here —
+// it's hardcoded in main.go instead, since it lives on a different host than
+// config was resolving it to and needed to be pinned directly. See main.go's
+// db.InitDB call.
 type DatabasesConfig struct {
 	Portal DatabaseConfig `json:"portal"` // strot_services — auth users + anomaly reports
 	UID    DatabaseConfig `json:"uid"`    // uidmasterv1_1 — UID/user identity data
-	Opt360 DatabaseConfig `json:"opt360"` // operator360 — primary operator master data
 }
 
 type SIDStoreConfig struct {
@@ -114,13 +118,16 @@ func (t TableRef) String() string {
 	return t.Database + "." + t.Table
 }
 
-// TablesConfig holds the location of every table used across the app's SQL
+// TablesConfig holds the location of tables used across the app's SQL
 // queries. Staging and prod have different database and table names for the
 // same logical data, so these must never be hardcoded string literals in
 // handler/db code — every query should build its FROM/JOIN clause from these
 // fields instead.
+//
+// opt_master is deliberately NOT here — its table reference is hardcoded to
+// "operator360.opt_master" directly at each query call site, alongside its
+// hardcoded connection in main.go. See main.go's db.InitDB call.
 type TablesConfig struct {
-	OptMaster   TableRef `json:"opt_master"`   // operator master/risk data
 	PortalUsers TableRef `json:"portal_users"` // opt360-portal-ui user accounts
 	MarkAnomaly TableRef `json:"mark_anomaly"` // reported anomaly records
 }
@@ -188,8 +195,6 @@ func Load(path string) (*Config, error) {
 	}
 	applyDatabaseDefaults(&cfg.Databases.Portal)
 	applyDatabaseDefaults(&cfg.Databases.UID)
-	applyDatabaseDefaults(&cfg.Databases.Opt360)
-	applyTableRefDefaults(&cfg.Tables.OptMaster, "operator360", "opt_master")
 	applyTableRefDefaults(&cfg.Tables.PortalUsers, "strot_services", "opt360_portal_users")
 	applyTableRefDefaults(&cfg.Tables.MarkAnomaly, "strot_services", "mark_anomaly")
 
@@ -204,9 +209,6 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	if err := validateDatabase("uid", cfg.Databases.UID); err != nil {
-		return nil, err
-	}
-	if err := validateDatabase("opt360", cfg.Databases.Opt360); err != nil {
 		return nil, err
 	}
 
@@ -265,9 +267,7 @@ func applyEnvOverrides(cfg *Config) {
 
 	applyDatabaseEnvOverrides(&cfg.Databases.Portal, "OPT360_DB_PORTAL")
 	applyDatabaseEnvOverrides(&cfg.Databases.UID, "OPT360_DB_UID")
-	applyDatabaseEnvOverrides(&cfg.Databases.Opt360, "OPT360_DB_OPT360")
 
-	applyTableRefEnvOverrides(&cfg.Tables.OptMaster, "OPT360_TABLE_OPT_MASTER")
 	applyTableRefEnvOverrides(&cfg.Tables.PortalUsers, "OPT360_TABLE_PORTAL_USERS")
 	applyTableRefEnvOverrides(&cfg.Tables.MarkAnomaly, "OPT360_TABLE_MARK_ANOMALY")
 
@@ -365,20 +365,11 @@ func GetTablesConfig() TablesConfig {
 	if err != nil {
 		fmt.Println("Error loading config:", err)
 		return TablesConfig{
-			OptMaster:   TableRef{Database: "operator360", Table: "opt_master"},
 			PortalUsers: TableRef{Database: "strot_services", Table: "opt360_portal_users"},
 			MarkAnomaly: TableRef{Database: "strot_services", Table: "mark_anomaly"},
 		}
 	}
 	return cfg.Tables
-}
-
-// OptMasterTableRef returns the schema-qualified opt_master table reference
-// (e.g. "operator360.opt_master") to drop directly into a FROM/JOIN clause,
-// built entirely from config instead of a hardcoded literal — both the
-// database and table name are supplied independently via config.tables.opt_master.
-func OptMasterTableRef() string {
-	return GetTablesConfig().OptMaster.String()
 }
 
 // PortalUsersTableRef returns the schema-qualified opt360_portal_users table
