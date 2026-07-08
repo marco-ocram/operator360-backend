@@ -1,8 +1,10 @@
 package LandingPage
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
+	"sort"
 
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
@@ -10,16 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Top10EAv1Entry holds risk counts for a single EA.
-type Top10EAv1Entry struct {
-	HighRiskCount int `json:"high_risk_count"`
-	MedRiskCount  int `json:"med_risk_count"`
-	LowRiskCount  int `json:"low_risk_count"`
-}
-
 // GetTop10EAsV1 handles GET /api/top10eav1.
-// Returns the top 10 EAs by total operator count (high + medium + low)
-// for the logged-in user's regional office, querying data_platform.opt_master.
+// Returns the top 10 EAs by total operator count across all risk buckets,
+// for the logged-in user's regional office. Bucket names are whatever
+// db.GetRiskBuckets() has cached from opt_master — not a fixed High/Medium/
+// Low list — so a bucket like "Critical" is included automatically.
 func GetTop10EAsV1(c *gin.Context) {
 
 	// ── 1. Auth guard ──────────────────────────────────────────────────────────
@@ -41,24 +38,12 @@ func GetTop10EAsV1(c *gin.Context) {
 		return
 	}
 
-	// ── 3. Query ───────────────────────────────────────────────────────────────
-	// Fetch risk counts per EA for the user's RO, ordered by total descending,
-	// limited to top 10.
+	// ── 3. Query raw (ea, risk_bucket) counts for the user's RO ───────────────
 	query := `
-		SELECT
-			ea AS ea_name,
-			SUM(CASE WHEN risk_bucket = 'High'   THEN 1 ELSE 0 END) AS high_risk,
-			SUM(CASE WHEN risk_bucket = 'Medium' THEN 1 ELSE 0 END) AS med_risk,
-			SUM(CASE WHEN risk_bucket = 'Low'    THEN 1 ELSE 0 END) AS low_risk
+		SELECT ea, risk_bucket, COUNT(*)
 		FROM operator360.opt_master
-		WHERE ro = ?
-		GROUP BY ea
-		ORDER BY (
-			SUM(CASE WHEN risk_bucket = 'High'   THEN 1 ELSE 0 END) +
-			SUM(CASE WHEN risk_bucket = 'Medium' THEN 1 ELSE 0 END) +
-			SUM(CASE WHEN risk_bucket = 'Low'    THEN 1 ELSE 0 END)
-		) DESC
-		LIMIT 10
+		WHERE ro = ? AND ea IS NOT NULL AND risk_bucket IS NOT NULL
+		GROUP BY ea, risk_bucket
 	`
 
 	rows, err := database.Query(query, user.RegionalOffice)
@@ -72,12 +57,13 @@ func GetTop10EAsV1(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	// ── 4. Scan rows ───────────────────────────────────────────────────────────
-	eaMap := make(map[string]Top10EAv1Entry)
+	// ── 4. Aggregate ea -> bucket -> count, and ea -> total ────────────────────
+	eaMap := make(map[string]map[string]int)
+	totals := make(map[string]int)
 	for rows.Next() {
-		var eaName string
-		var entry Top10EAv1Entry
-		if err := rows.Scan(&eaName, &entry.HighRiskCount, &entry.MedRiskCount, &entry.LowRiskCount); err != nil {
+		var ea, riskBucket sql.NullString
+		var count int
+		if err := rows.Scan(&ea, &riskBucket, &count); err != nil {
 			log.Printf("[GetTop10EAsV1] Row scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to process EA record",
@@ -85,7 +71,14 @@ func GetTop10EAsV1(c *gin.Context) {
 			})
 			return
 		}
-		eaMap[eaName] = entry
+		if !ea.Valid || !riskBucket.Valid {
+			continue
+		}
+		if eaMap[ea.String] == nil {
+			eaMap[ea.String] = make(map[string]int)
+		}
+		eaMap[ea.String][riskBucket.String] += count
+		totals[ea.String] += count
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("[GetTop10EAsV1] Row iteration error: %v", err)
@@ -96,11 +89,25 @@ func GetTop10EAsV1(c *gin.Context) {
 		return
 	}
 
-	// ── 5. Respond ─────────────────────────────────────────────────────────────
-	log.Printf("[GetTop10EAsV1] Returning top %d EAs for ro=%s", len(eaMap), user.RegionalOffice)
+	// ── 5. Top 10 by total descending ──────────────────────────────────────────
+	eaNames := make([]string, 0, len(eaMap))
+	for ea := range eaMap {
+		eaNames = append(eaNames, ea)
+	}
+	sort.Slice(eaNames, func(i, j int) bool { return totals[eaNames[i]] > totals[eaNames[j]] })
+	if len(eaNames) > 10 {
+		eaNames = eaNames[:10]
+	}
+	top10 := make(map[string]map[string]int, len(eaNames))
+	for _, ea := range eaNames {
+		top10[ea] = eaMap[ea]
+	}
+
+	// ── 6. Respond ─────────────────────────────────────────────────────────────
+	log.Printf("[GetTop10EAsV1] Returning top %d EAs for ro=%s", len(top10), user.RegionalOffice)
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"ea": eaMap,
+			"ea": top10,
 		},
 		"regional_office": user.RegionalOffice,
 	})
