@@ -69,7 +69,7 @@ type OperatorSearchRequest struct {
 	Reg        string `json:"reg"`
 	RegCode    string `json:"reg_code"`
 	RiskBucket string `json:"risk_bucket"`
-	Status     string `json:"status"` // "active" | "inactive", from opt_master.status directly
+	Status     string `json:"status"` // "active" | "inactive", from opt_master.is_active directly
 	SortBy     string `json:"sort_by"`
 	SortDir    string `json:"sort_dir"`
 	Page       int    `json:"page"`

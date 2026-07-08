@@ -65,7 +65,7 @@ func GetOperatorDetails(c *gin.Context) {
 	query := `
 		SELECT id, uid, name, phone, email, risk_score, risk_bucket,
 		       reg, reg_code, ea, ea_code, ro, district, state,
-		       last_sync_timestamp, status, machine_code
+		       last_sync_timestamp, is_active, machine_code
 		FROM operator360.opt_master
 		WHERE id = ?`
 
@@ -78,7 +78,7 @@ func GetOperatorDetails(c *gin.Context) {
 		ro                sql.NullString
 		district, state   sql.NullString
 		lastSyncTimestamp sql.NullTime
-		status            sql.NullString
+		isActive          sql.NullInt64
 		machineCode       sql.NullString
 	)
 
@@ -86,7 +86,7 @@ func GetOperatorDetails(c *gin.Context) {
 	if err := row.Scan(
 		&d.ID, &d.UID, &d.Name, &d.Phone, &d.Email, &riskScore, &riskBucket,
 		&reg, &regCode, &ea, &eaCode, &ro, &district, &state,
-		&lastSyncTimestamp, &status, &machineCode,
+		&lastSyncTimestamp, &isActive, &machineCode,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			log.Printf("[GetOperatorDetails] Not found opt_id=%s user=%s", optID, user.ADID)
@@ -139,10 +139,10 @@ func GetOperatorDetails(c *gin.Context) {
 		d.MachineCode = &machineCode.String
 	}
 
-	// opt_master.status is a string column where "1" means active and every
+	// opt_master.is_active is a numeric column where 1 means active and every
 	// other value (including NULL) means inactive — same rule as operatorSearch.go.
 	d.Status = "inactive"
-	if status.Valid && status.String == "1" {
+	if isActive.Valid && isActive.Int64 == 1 {
 		d.Status = "active"
 	}
 

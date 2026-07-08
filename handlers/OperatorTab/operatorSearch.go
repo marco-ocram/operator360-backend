@@ -26,7 +26,7 @@ var sortColumns = map[string]string{
 // med_risk_operator, low_risk_operator, operator_list_with_risk and
 // filter_operator_list endpoints. Sourced entirely from operator360.opt_master —
 // no cross-cluster UID-DB join (see docs/VIEW_OPERATORS_REDESIGN_PLAN.md); status
-// comes directly from opt_master.status.
+// comes directly from opt_master.is_active.
 //
 // Body (all fields optional):
 //
@@ -42,7 +42,7 @@ var sortColumns = map[string]string{
 //	reg          – filter by registrar name
 //	reg_code     – filter by registrar code (exact match — what the View Operators typeahead sends)
 //	risk_bucket  – filter by risk bucket (High | Medium | Low | No)
-//	status       – filter by status (active | inactive), from opt_master.status
+//	status       – filter by status (active | inactive), from opt_master.is_active
 //	sort_by      – risk_score | last_sync (default: none, falls back to id ASC)
 //	sort_dir     – asc | desc (default: asc)
 //	page         – page number (default 1)
@@ -155,14 +155,13 @@ func SearchOperators(c *gin.Context) {
 		args = append(args, filterRiskBucket)
 	}
 	if filterStatus == "active" {
-		// opt_master.status is a string column where "1" means active and every
-		// other value (including NULL) means inactive — confirmed against real
-		// data 2026-07-03 (see docs/VIEW_OPERATORS_REDESIGN_PLAN.md §2/§6).
-		whereClauses = append(whereClauses, "status = '1'")
+		// opt_master.is_active is a numeric column where 1 means active and
+		// every other value (including NULL) means inactive.
+		whereClauses = append(whereClauses, "is_active = 1")
 	} else if filterStatus == "inactive" {
-		// NULL doesn't satisfy status <> '1' under SQL's three-valued logic, so
+		// NULL doesn't satisfy is_active <> 1 under SQL's three-valued logic, so
 		// it has to be spelled out explicitly to count NULL as inactive too.
-		whereClauses = append(whereClauses, "(status IS NULL OR status <> '1')")
+		whereClauses = append(whereClauses, "(is_active IS NULL OR is_active <> 1)")
 	}
 
 	var whereSQL string
@@ -170,7 +169,7 @@ func SearchOperators(c *gin.Context) {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 	fromSQL := "FROM operator360.opt_master"
-	selectCols := `SELECT id, uid, name, phone, email, risk_score, risk_bucket, reg, reg_code, ea, ea_code, ro, district, state, last_sync_timestamp, data_path, status`
+	selectCols := `SELECT id, uid, name, phone, email, risk_score, risk_bucket, reg, reg_code, ea, ea_code, ro, district, state, last_sync_timestamp, data_path, is_active`
 
 	// ── 7. Count ───────────────────────────────────────────────────────────────
 	var total int
@@ -218,13 +217,13 @@ func SearchOperators(c *gin.Context) {
 			state             sql.NullString
 			lastSyncTimestamp sql.NullTime
 			dataPath          sql.NullString
-			status            sql.NullString
+			isActive          sql.NullInt64
 		)
 		if err := rows.Scan(
 			&op.ID, &uid, &op.Name, &phone, &email,
 			&riskScore, &riskBucket,
 			&reg, &regCode, &ea, &eaCode, &ro, &district, &state,
-			&lastSyncTimestamp, &dataPath, &status,
+			&lastSyncTimestamp, &dataPath, &isActive,
 		); err != nil {
 			log.Printf("[SearchOperators] Row scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -275,10 +274,10 @@ func SearchOperators(c *gin.Context) {
 		if dataPath.Valid {
 			op.DataPath = &dataPath.String
 		}
-		// Normalize opt_master's raw "1"/other-value status into "active"/"inactive"
+		// Normalize opt_master's raw is_active (1/other/NULL) into "active"/"inactive"
 		// so callers get a consistent value regardless of the underlying representation.
 		normalizedStatus := "inactive"
-		if status.Valid && status.String == "1" {
+		if isActive.Valid && isActive.Int64 == 1 {
 			normalizedStatus = "active"
 		}
 		op.Status = &normalizedStatus
