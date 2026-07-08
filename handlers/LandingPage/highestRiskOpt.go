@@ -55,13 +55,15 @@ func GetHighestRiskOperator(c *gin.Context) {
 		return
 	}
 
-	// ── 4. High-risk count ─────────────────────────────────────────────────────
-	countQuery := "SELECT COUNT(*) FROM operator360.opt_master WHERE ro = ? AND risk_bucket = 'High'"
+	// ── 4. Urgent Feedback Required count: critical + active operators only ────
+	// (was risk_bucket = 'High' with no status filter — narrowed per explicit
+	// instruction, see docs/OVERVIEW_RISK_CRITICAL_BUCKET_PLAN.md item 2.)
+	countQuery := "SELECT COUNT(*) FROM operator360.opt_master WHERE ro = ? AND risk_bucket = 'Critical' AND status = '1'"
 	var highOptCount int
 	if err := database.QueryRow(countQuery, user.RegionalOffice).Scan(&highOptCount); err != nil {
 		log.Printf("[GetHighestRiskOperator] Count scan error for ro=%s: %v", user.RegionalOffice, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to retrieve high risk count",
+			"error":   "Failed to retrieve critical+active operator count",
 			"details": err.Error(),
 		})
 		return

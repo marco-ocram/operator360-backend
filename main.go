@@ -93,6 +93,11 @@ func main() {
 
 	fmt.Println("Database connection established")
 
+	// Cache the distinct risk_bucket values opt_master actually has, once, so
+	// handlers enumerate buckets dynamically instead of hardcoding a fixed
+	// High/Medium/Low list — see db/riskBuckets.go.
+	db.InitRiskBucketCache()
+
 	// Initialize UID database connection
 	if err := db.InitUIDDB(toDBConfig(cfg.Databases.UID)); err != nil {
 		log.Fatal("Failed to initialize UID database: ", err)

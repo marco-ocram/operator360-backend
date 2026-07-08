@@ -65,9 +65,23 @@ func applyPoolSettings(database *sql.DB, config DBConfig) {
 	database.SetConnMaxLifetime(lifetime)
 }
 
-// InitDB initializes the database connection
+// InitDB initializes the database connection (operator360/opt_master).
+//
+// Loc is set to Asia/Kolkata here — and only here, not on the UID/portal
+// connections — because opt_master's timestamp columns store IST wall-clock
+// values. Without an explicit Loc, go-sql-driver/mysql defaults to time.UTC,
+// mislabeling those IST values as UTC; the frontend then re-applies an
+// Asia/Kolkata conversion on top for display, double-shifting the displayed
+// time by +5:30. Setting Loc here means the driver anchors parsed times
+// correctly at the source, so no downstream consumer needs special-casing.
 func InitDB(config DBConfig) error {
 	dbOnce.Do(func() {
+		loc, locErr := time.LoadLocation("Asia/Kolkata")
+		if locErr != nil {
+			log.Printf("Failed to load Asia/Kolkata timezone, falling back to UTC: %v", locErr)
+			loc = time.UTC
+		}
+
 		// Use mysql.Config to safely build connection string
 		cfg := mysql.Config{
 			User:                 config.User,
@@ -77,6 +91,7 @@ func InitDB(config DBConfig) error {
 			DBName:               config.Database,
 			AllowNativePasswords: true,
 			ParseTime:            true,
+			Loc:                  loc,
 		}
 
 		db, dbErr = sql.Open("mysql", cfg.FormatDSN())
