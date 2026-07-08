@@ -158,11 +158,11 @@ func SearchOperators(c *gin.Context) {
 		// opt_master.status is a string column where "1" means active and every
 		// other value (including NULL) means inactive — confirmed against real
 		// data 2026-07-03 (see docs/VIEW_OPERATORS_REDESIGN_PLAN.md §2/§6).
-		whereClauses = append(whereClauses, "status = '1'")
+		whereClauses = append(whereClauses, "is_active = 1")
 	} else if filterStatus == "inactive" {
-		// NULL doesn't satisfy status <> '1' under SQL's three-valued logic, so
+		// NULL doesn't satisfy is_active <> 1 under SQL's three-valued logic, so
 		// it has to be spelled out explicitly to count NULL as inactive too.
-		whereClauses = append(whereClauses, "(status IS NULL OR status <> '1')")
+		whereClauses = append(whereClauses, "(is_active IS NULL OR is_active <> 1)")
 	}
 
 	var whereSQL string
@@ -170,7 +170,7 @@ func SearchOperators(c *gin.Context) {
 		whereSQL = "WHERE " + strings.Join(whereClauses, " AND ")
 	}
 	fromSQL := "FROM operator360.opt_master"
-	selectCols := `SELECT id, uid, name, phone, email, risk_score, risk_bucket, reg, reg_code, ea, ea_code, ro, district, state, last_sync_timestamp, data_path, status`
+	selectCols := `SELECT id, uid, name, phone, email, risk_score, risk_bucket, reg, reg_code, ea, ea_code, ro, district, state, last_sync_timestamp, data_path, is_active`
 
 	// ── 7. Count ───────────────────────────────────────────────────────────────
 	var total int
@@ -218,13 +218,13 @@ func SearchOperators(c *gin.Context) {
 			state             sql.NullString
 			lastSyncTimestamp sql.NullTime
 			dataPath          sql.NullString
-			status            sql.NullString
+			isActive          sql.NullInt64
 		)
 		if err := rows.Scan(
 			&op.ID, &uid, &op.Name, &phone, &email,
 			&riskScore, &riskBucket,
 			&reg, &regCode, &ea, &eaCode, &ro, &district, &state,
-			&lastSyncTimestamp, &dataPath, &status,
+			&lastSyncTimestamp, &dataPath, &isActive,
 		); err != nil {
 			log.Printf("[SearchOperators] Row scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -278,7 +278,7 @@ func SearchOperators(c *gin.Context) {
 		// Normalize opt_master's raw "1"/other-value status into "active"/"inactive"
 		// so callers get a consistent value regardless of the underlying representation.
 		normalizedStatus := "inactive"
-		if status.Valid && status.String == "1" {
+		if isActive.Valid && isActive.Int64 == 1 {
 			normalizedStatus = "active"
 		}
 		op.Status = &normalizedStatus
