@@ -1,7 +1,6 @@
 package OperatorTab
 
 import (
-	"database/sql"
 	"log"
 	"net/http"
 	"strings"
@@ -84,7 +83,7 @@ func GetOperatorFilters(c *gin.Context) {
 // optionally scoped to ro. nameCol/codeCol are always one of the small fixed set
 // of literals passed by callers in this file (never user input), so building the
 // query by string concatenation here is safe.
-func fetchNameCodePairs(database *sql.DB, nameCol, codeCol, ro string) ([]models.NameCode, error) {
+func fetchNameCodePairs(database *db.LoggedDB, nameCol, codeCol, ro string) ([]models.NameCode, error) {
 	query := "SELECT DISTINCT " + nameCol + ", " + codeCol + " FROM operator360.opt_master WHERE " + nameCol + " IS NOT NULL AND " + codeCol + " IS NOT NULL"
 	args := []interface{}{}
 	if ro != "" {
@@ -113,7 +112,7 @@ func fetchNameCodePairs(database *sql.DB, nameCol, codeCol, ro string) ([]models
 // fetchDistinctColumn returns distinct non-null values of col from opt_master,
 // optionally scoped to ro. col is always one of a small fixed set of literals
 // passed by callers in this file (never user input).
-func fetchDistinctColumn(database *sql.DB, col, ro string) ([]string, error) {
+func fetchDistinctColumn(database *db.LoggedDB, col, ro string) ([]string, error) {
 	query := "SELECT DISTINCT " + col + " FROM operator360.opt_master WHERE " + col + " IS NOT NULL"
 	args := []interface{}{}
 	if ro != "" {
