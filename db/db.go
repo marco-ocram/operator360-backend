@@ -116,11 +116,11 @@ func InitDB(config DBConfig) error {
 }
 
 // GetDB returns the database connection
-func GetDB() (*sql.DB, error) {
+func GetDB() (*LoggedDB, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	return db, nil
+	return newLoggedDB("opt360", db), nil
 }
 
 // InitUIDDB initializes the UID database connection
@@ -159,11 +159,11 @@ func InitUIDDB(config DBConfig) error {
 }
 
 // GetUIDDB returns the UID database connection
-func GetUIDDB() (*sql.DB, error) {
+func GetUIDDB() (*LoggedDB, error) {
 	if uidDB == nil {
 		return nil, fmt.Errorf("UID database not initialized")
 	}
-	return uidDB, nil
+	return newLoggedDB("uid", uidDB), nil
 }
 
 // InitPortalDB initializes the portal (strot_services) database connection
@@ -199,11 +199,11 @@ func InitPortalDB(config DBConfig) error {
 }
 
 // GetPortalDB returns the portal (strot_services) database connection
-func GetPortalDB() (*sql.DB, error) {
+func GetPortalDB() (*LoggedDB, error) {
 	if portalDB == nil {
 		return nil, fmt.Errorf("portal database not initialized")
 	}
-	return portalDB, nil
+	return newLoggedDB("portal", portalDB), nil
 }
 
 const userColumns = "user_id, user_name, `group`, role, email, status, last_login, created_at, created_by"
