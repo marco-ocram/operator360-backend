@@ -38,6 +38,7 @@ func GetHighestRiskOperator(c *gin.Context) {
 		SELECT id, NAME, risk_score
 		FROM operator360.opt_master
 		WHERE ro = ?
+		and is_active = 1
 		ORDER BY risk_score DESC
 		LIMIT 1`
 
