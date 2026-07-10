@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
@@ -12,8 +13,10 @@ import (
 )
 
 // GetEaAndReg handles GET /api/geteaandreg
-// Query param: value=ea  → returns distinct ea values for the user's RO
-// Query param: value=reg → returns distinct reg values for the user's RO
+// Query param: value=ea  → returns distinct ea values for the resolved RO
+// Query param: value=reg → returns distinct reg values for the resolved RO
+// Query param: ro (optional) → override the default RO (own RO for a normal
+// user, global — all ROs — for TechCentre/HeadQuarters; see models.ResolveRO)
 func GetEaAndReg(c *gin.Context) {
 
 	// ── 1. Auth guard ──────────────────────────────────────────────────────────
@@ -23,6 +26,7 @@ func GetEaAndReg(c *gin.Context) {
 		return
 	}
 	user := userInterface.(*models.User)
+	ro := models.ResolveRO(strings.TrimSpace(c.Query("ro")), user)
 
 	// ── 2. Validate query param ────────────────────────────────────────────────
 	value := c.Query("value")
@@ -47,9 +51,15 @@ func GetEaAndReg(c *gin.Context) {
 
 	// ── 4. Build and execute query ─────────────────────────────────────────────
 	// Column name is validated above (only "ea" or "reg"), safe to interpolate.
-	query := "SELECT DISTINCT " + value + " FROM operator360.opt_master WHERE ro = ? AND " + value + " IS NOT NULL ORDER BY " + value
+	query := "SELECT DISTINCT " + value + " FROM operator360.opt_master WHERE " + value + " IS NOT NULL"
+	var queryArgs []interface{}
+	if ro != "" {
+		query += " AND ro = ?"
+		queryArgs = append(queryArgs, ro)
+	}
+	query += " ORDER BY " + value
 
-	rows, err := database.Query(query, user.RegionalOffice)
+	rows, err := database.Query(query, queryArgs...)
 	if err != nil {
 		log.Printf("[GetEaAndReg] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -86,11 +96,11 @@ func GetEaAndReg(c *gin.Context) {
 	}
 
 	// ── 6. Respond ─────────────────────────────────────────────────────────────
-	log.Printf("[GetEaAndReg] Returning %d distinct %s values for ro=%s", len(results), value, user.RegionalOffice)
+	log.Printf("[GetEaAndReg] Returning %d distinct %s values for ro=%q", len(results), value, ro)
 	c.JSON(http.StatusOK, gin.H{
 		"data":            results,
 		"count":           len(results),
 		"type":            value,
-		"regional_office": user.RegionalOffice,
+		"regional_office": ro,
 	})
 }

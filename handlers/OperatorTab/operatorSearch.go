@@ -64,10 +64,9 @@ func SearchOperators(c *gin.Context) {
 		return
 	}
 
-	filterRO := strings.TrimSpace(req.RO)
-	if filterRO == "" {
-		filterRO = user.RegionalOffice
-	}
+	// TechCentre/HeadQuarters users see all ROs by default (no RO filter) —
+	// see models.ResolveRO. A normal user still defaults to their own RO.
+	filterRO := models.ResolveRO(strings.TrimSpace(req.RO), user)
 	filterState := strings.TrimSpace(req.State)
 	filterDistrict := strings.TrimSpace(req.District)
 	filterID := strings.TrimSpace(req.ID)
