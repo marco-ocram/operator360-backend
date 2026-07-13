@@ -26,7 +26,7 @@ func SetupRoutes(router *gin.Engine) {
 
 	// Protected routes - require authentication
 	api := router.Group("/api")
-	// api.Use(middleware.AuthMiddleware())
+	api.Use(middleware.AuthMiddleware())
 	{
 
 		api.GET("/user/info", User.GetUserInfo)

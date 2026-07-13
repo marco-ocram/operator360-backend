@@ -12,18 +12,10 @@ import (
 
 const regionEvaluationQueryTimeout = 10 * time.Second
 
-// GetRegionEvaluationFromClickHouse returns:
-//
-//	data  -> JSON-compatible object (same shape expected by API)
-//	found -> true if a row exists
-//	err   -> query/connection error
-//
-// NOTE:
-// RO Level  : state_name = "ro_<RegionalOffice>"
-// State     : state_name = <StateName>
 func GetRegionEvaluationFromClickHouse(
 	regionalOffice string,
 	optState string,
+	optDistrict string,
 ) (map[string]interface{}, bool, error) {
 
 	start := time.Now()
@@ -45,27 +37,44 @@ func GetRegionEvaluationFromClickHouse(
 	//---------------------------------------------------------
 
 	var stateFilter string
+	var districtFilter string
 
 	if strings.TrimSpace(optState) == "" {
 
 		// RO level
-		stateFilter = "ro_" + regionalOffice
+		stateFilter = "ALL" 
+		districtFilter = "ALL"
 
 		log.Printf(
-			"[ClickHouse][RegionEvaluation] RO level lookup ro=%s state=%s",
+			"[ClickHouse][RegionEvaluation] RO level lookup ro=%s state=%s district=%s",
 			regionalOffice,
 			stateFilter,
+			districtFilter,
 		)
 
-	} else {
+	} else if (strings.TrimSpace(optDistrict)=="") {
 
 		// State level
+
+
 		stateFilter = optState
+		districtFilter= "ALL"
 
 		log.Printf(
-			"[ClickHouse][RegionEvaluation] State level lookup ro=%s state=%s",
+			"[ClickHouse][RegionEvaluation] State level lookup ro=%s state=%s district=%s",
 			regionalOffice,
 			stateFilter,
+			districtFilter,
+		)
+	} else {
+		stateFilter= optState
+		districtFilter= optDistrict
+
+		log.Printf(
+			"[ClickHouse][RegionEvaluation] District level lookup ro=%s state=%s district=%s",
+			regionalOffice,
+			stateFilter,
+			districtFilter,
 		)
 	}
 
@@ -78,7 +87,6 @@ SELECT
 	medium_risk_count_active,
 	low_risk_count_active,
 	no_risk_count_active,
-
 	critical_risk_count_inactive,
 	high_risk_count_inactive,
 	medium_risk_count_inactive,
@@ -88,7 +96,8 @@ SELECT
 FROM operator360.ro_state_metrics
 WHERE ro_name = ?
 AND state_name = ?
-LIMIT 1
+AND district_name = ?
+LIMIT 1 
 `
 
 	ctx, cancel := context.WithTimeout(
@@ -118,6 +127,7 @@ LIMIT 1
 		query,
 		regionalOffice,
 		stateFilter,
+		districtFilter,
 	).Scan(
 		&highestRiskOperator,
 

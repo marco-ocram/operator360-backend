@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
@@ -20,13 +21,21 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	// ------------------------------------------------------------------
 	// Get authenticated user
 	// ------------------------------------------------------------------
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return
+	// userInterface, exists := c.Get("user")
+	// if !exists {
+	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	// 	return
+	// }
+
+	// user := userInterface.(*models.User)
+
+	user := &models.User{
+		ADID:           "TESTUSER001",
+		RegionalOffice: "Lucknow",
 	}
 
-	user := userInterface.(*models.User)
+	c.Set("user", user)
+    
 
 	// ------------------------------------------------------------------
 	// Request parameters
@@ -83,51 +92,50 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	// ------------------------------------------------------------------
 	// ClickHouse (RO + State only)
 	// ------------------------------------------------------------------
-	if optDistrict == "" {
+
+
+	log.Printf(
+		"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s district=%s)",
+		regionalOffice,
+		optState,
+		optDistrict,
+	)
+
+	
+
+	data, found, err := GetRegionEvaluationFromClickHouse(
+		strings.ToUpper(regionalOffice),
+		optState,
+		optDistrict,
+	)
+
+	if err != nil {
 
 		log.Printf(
-			"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s)",
+			"[GetRegionEvaluationCount] ClickHouse lookup failed: %v. Falling back to S3.",
+			err,
+		)
+
+	} else if found {
+
+		log.Printf(
+			"[GetRegionEvaluationCount] Returning ClickHouse response (ro=%s state=%s)",
 			regionalOffice,
 			optState,
 		)
 
-		data, found, err := GetRegionEvaluationFromClickHouse(
-			regionalOffice,
-			optState,
-		)
+		c.JSON(http.StatusOK, gin.H{
+			"regional_office": regionalOffice,
+			"opt_state":       optState,
+			"opt_district":    optDistrict,
+			"file":            "Clickhouse",
+			"data":            data,
+			"requested_by":    user.ADID,
+		})
 
-		if err != nil {
+		return
 
-			log.Printf(
-				"[GetRegionEvaluationCount] ClickHouse lookup failed: %v. Falling back to S3.",
-				err,
-			)
-
-		} else if found {
-
-			log.Printf(
-				"[GetRegionEvaluationCount] Returning ClickHouse response (ro=%s state=%s)",
-				regionalOffice,
-				optState,
-			)
-
-			c.JSON(http.StatusOK, gin.H{
-				"regional_office": regionalOffice,
-				"opt_state":       optState,
-				"opt_district":    optDistrict,
-				"file":            fileName,
-				"data":            data,
-				"requested_by":    user.ADID,
-			})
-
-			return
-
-		} else {
-
-			log.Printf(
-				"[GetRegionEvaluationCount] No ClickHouse data found. Falling back to S3.",
-			)
-		}
+		
 
 	} else {
 
