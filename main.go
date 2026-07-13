@@ -98,6 +98,10 @@ func main() {
 	// High/Medium/Low list — see db/riskBuckets.go.
 	db.InitRiskBucketCache()
 
+	// Cache EA/Registrar name-code pairs at startup, refreshed periodically —
+	// see db/nameCache.go.
+	db.InitNameCache()
+
 	// Initialize UID database connection
 	if err := db.InitUIDDB(toDBConfig(cfg.Databases.UID)); err != nil {
 		log.Fatal("Failed to initialize UID database: ", err)

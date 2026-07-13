@@ -1,6 +1,5 @@
 package AnamolyIndicators
 
-
 import (
 	"encoding/json"
 	"io"
@@ -17,21 +16,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func GetAnamolyIndicators(c *gin.Context) {
 
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return 
+		return
 	}
 
 	user := userInterface.(*models.User)
 
+	// anomalies_insights.json is one file per RO — no global/aggregate file,
+	// so a TechCentre/HeadQuarters user with no RO selected can't get a
+	// "global" view here the way DB-backed endpoints can.
+	ro := models.ResolveRO(strings.TrimSpace(c.Query("ro")), user)
+	if ro == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Select a Regional Office — there is no global/aggregate file for this data.",
+		})
+		return
+	}
+
 	s3Cfg := config.GetDefaultS3Config()
 
-	filename := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/anomalies_insights.json"
-
+	filename := "opt360Store/" + utils.ToPascalCase(ro) + "/anomalies_insights.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -48,7 +56,7 @@ func GetAnamolyIndicators(c *gin.Context) {
 		log.Printf("[GetAnamolyIndicators] S3 fetch failed key=%s user=%s: %v", filename, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":           "Anomalies insights file not found",
-			"regional_office": user.RegionalOffice,
+			"regional_office": ro,
 			"file_path":       filename,
 			"details":         err.Error(),
 		})
@@ -78,7 +86,7 @@ func GetAnamolyIndicators(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"file":            filename,
 		"requested_by":    user.ADID,
-		"regional_office": user.RegionalOffice,
+		"regional_office": ro,
 		"data":            jsonData,
 	})
 
