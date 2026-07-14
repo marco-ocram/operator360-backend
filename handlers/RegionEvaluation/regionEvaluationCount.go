@@ -40,6 +40,7 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	}
 
 	roForPath := utils.ToPascalCase(regionalOffice)
+	var fileName string
 	if optState != "" && optDistrict != "" {
 		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
 	} else if optState != "" {
@@ -48,37 +49,9 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		fileName = "opt360Store/" + roForPath + "/audit.json"
 	}
 
-	s3Client, err := config.NewS3Client(s3Cfg)
-	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] S3 client error user=%s: %v", user.ADID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
-
-	if optState != "" && optDistrict != "" {
-
-		fileName = "opt360Store/" +
-			roForPath + "/" +
-			utils.ToPascalCase(optState) + "/" +
-			utils.ToPascalCase(optDistrict) +
-			"/audit.json"
-
-	} else if optState != "" {
-
-		fileName = "opt360Store/" +
-			roForPath + "/" +
-			utils.ToPascalCase(optState) +
-			"/audit.json"
-
-	} else {
-
-		fileName = "opt360Store/" +
-			roForPath +
-			"/audit.json"
-	}
-
 	// ------------------------------------------------------------------
 	// ClickHouse (RO + State only)
 	// ------------------------------------------------------------------
-
 
 	log.Printf(
 		"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s district=%s)",
@@ -86,8 +59,6 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		optState,
 		optDistrict,
 	)
-
-	
 
 	data, found, err := GetRegionEvaluationFromClickHouse(
 		strings.ToUpper(regionalOffice),
@@ -121,8 +92,6 @@ func GetRegionEvaluationCount(c *gin.Context) {
 
 		return
 
-		
-
 	} else {
 
 		log.Printf(
@@ -134,6 +103,7 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	// Existing S3 fallback
 	// ------------------------------------------------------------------
 
+	s3Cfg := config.GetDefaultS3Config()
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
 		log.Printf(

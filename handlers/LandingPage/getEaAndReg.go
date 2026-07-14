@@ -102,3 +102,5 @@ func GetEaAndReg(c *gin.Context) {
 		"count":           len(results),
 		"type":            value,
 		"regional_office": ro,
+	})
+}
