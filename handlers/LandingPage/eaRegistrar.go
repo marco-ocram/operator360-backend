@@ -14,10 +14,6 @@ import (
 // GetEARegistrar handles GET /api/get_ea_registrar.
 // Returns EAs grouped by registrar for the resolved RO (optional ?ro=
 // override; defaults to the caller's own RO, or global — all ROs — for
-// TechCentre/HeadQuarters, see models.ResolveRO).
-func GetEARegistrar(c *gin.Context) {
-
-	// ── 1. Auth guard ──────────────────────────────────────────────────────────
 	userInterface, exists := c.Get("user")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
@@ -28,14 +24,12 @@ func GetEARegistrar(c *gin.Context) {
 
 	// ── 2. DB connection ───────────────────────────────────────────────────────
 	database, err := db.GetDB()
-	if err != nil {
 		log.Printf("[GetEARegistrar] DB connection error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Database connection unavailable",
 			"details": err.Error(),
 		})
 		return
 	}
+
 
 	// ── 3. Query distinct reg/ea pairs for the resolved RO ────────────────────
 	query := "SELECT DISTINCT reg, ea FROM operator360.opt_master"
@@ -46,16 +40,7 @@ func GetEARegistrar(c *gin.Context) {
 	}
 	query += " ORDER BY reg, ea"
 	rows, err := database.Query(query, queryArgs...)
-	if err != nil {
-		log.Printf("[GetEARegistrar] Query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Failed to fetch EA registrar data",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer rows.Close()
-
+	
 	// ── 4. Scan and group EAs by registrar ─────────────────────────────────────
 	data := make(map[string][]string)
 	totalPairs := 0

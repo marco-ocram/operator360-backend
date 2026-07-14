@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
@@ -39,9 +40,6 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	}
 
 	roForPath := utils.ToPascalCase(regionalOffice)
-	s3Cfg := config.GetDefaultS3Config()
-
-	var fileName string
 	if optState != "" && optDistrict != "" {
 		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
 	} else if optState != "" {
@@ -54,6 +52,101 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetRegionEvaluationCount] S3 client error user=%s: %v", user.ADID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create S3 client", "details": err.Error()})
+
+	if optState != "" && optDistrict != "" {
+
+		fileName = "opt360Store/" +
+			roForPath + "/" +
+			utils.ToPascalCase(optState) + "/" +
+			utils.ToPascalCase(optDistrict) +
+			"/audit.json"
+
+	} else if optState != "" {
+
+		fileName = "opt360Store/" +
+			roForPath + "/" +
+			utils.ToPascalCase(optState) +
+			"/audit.json"
+
+	} else {
+
+		fileName = "opt360Store/" +
+			roForPath +
+			"/audit.json"
+	}
+
+	// ------------------------------------------------------------------
+	// ClickHouse (RO + State only)
+	// ------------------------------------------------------------------
+
+
+	log.Printf(
+		"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s district=%s)",
+		regionalOffice,
+		optState,
+		optDistrict,
+	)
+
+	
+
+	data, found, err := GetRegionEvaluationFromClickHouse(
+		strings.ToUpper(regionalOffice),
+		optState,
+		optDistrict,
+	)
+
+	if err != nil {
+
+		log.Printf(
+			"[GetRegionEvaluationCount] ClickHouse lookup failed: %v. Falling back to S3.",
+			err,
+		)
+
+	} else if found {
+
+		log.Printf(
+			"[GetRegionEvaluationCount] Returning ClickHouse response (ro=%s state=%s)",
+			regionalOffice,
+			optState,
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"regional_office": regionalOffice,
+			"opt_state":       optState,
+			"opt_district":    optDistrict,
+			"file":            "Clickhouse",
+			"data":            data,
+			"requested_by":    user.ADID,
+		})
+
+		return
+
+		
+
+	} else {
+
+		log.Printf(
+			"[GetRegionEvaluationCount] District request detected. Skipping ClickHouse and using S3.",
+		)
+	}
+
+	// ------------------------------------------------------------------
+	// Existing S3 fallback
+	// ------------------------------------------------------------------
+
+	s3Client, err := config.NewS3Client(s3Cfg)
+	if err != nil {
+		log.Printf(
+			"[GetRegionEvaluationCount] S3 client error user=%s: %v",
+			user.ADID,
+			err,
+		)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create S3 client",
+			"details": err.Error(),
+		})
+
 		return
 	}
 
@@ -61,31 +154,69 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		Bucket: aws.String(s3Cfg.BucketName),
 		Key:    aws.String(fileName),
 	})
+
 	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
+
+		log.Printf(
+			"[GetRegionEvaluationCount] S3 fetch failed key=%s user=%s: %v",
+			fileName,
+			user.ADID,
+			err,
+		)
+
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": regionalOffice,
-			"file_path": fileName, "details": err.Error(),
+			"error":           "Audit file not found",
+			"regional_office": regionalOffice,
+			"file_path":       fileName,
+			"details":         err.Error(),
 		})
+
 		return
 	}
+
 	defer result.Body.Close()
 
 	body, err := io.ReadAll(result.Body)
 	if err != nil {
-		log.Printf("[GetRegionEvaluationCount] Read body failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read S3 data", "details": err.Error()})
+
+		log.Printf(
+			"[GetRegionEvaluationCount] Read body failed key=%s: %v",
+			fileName,
+			err,
+		)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read S3 data",
+			"details": err.Error(),
+		})
+
 		return
 	}
 
 	var jsonData interface{}
+
 	if err := json.Unmarshal(body, &jsonData); err != nil {
-		log.Printf("[GetRegionEvaluationCount] JSON parse failed key=%s: %v", fileName, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse JSON data", "details": err.Error()})
+
+		log.Printf(
+			"[GetRegionEvaluationCount] JSON parse failed key=%s: %v",
+			fileName,
+			err,
+		)
+
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to parse JSON data",
+			"details": err.Error(),
+		})
+
 		return
 	}
 
-	log.Printf("[GetRegionEvaluationCount] Serving key=%s user=%s", fileName, user.ADID)
+	log.Printf(
+		"[GetRegionEvaluationCount] Returning S3 response key=%s user=%s",
+		fileName,
+		user.ADID,
+	)
+
 	c.JSON(http.StatusOK, gin.H{
 		"regional_office": regionalOffice,
 		"opt_state":       optState,

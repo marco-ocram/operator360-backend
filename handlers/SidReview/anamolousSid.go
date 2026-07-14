@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func GetAnamolousSIDs(c *gin.Context) {
 	// Get user from context
 	userInterface, exists := c.Get("user")
@@ -31,7 +30,7 @@ func GetAnamolousSIDs(c *gin.Context) {
 	// Get pagination parameters
 	page := 1
 	pageSize := 20
-	
+
 	if pageParam := c.Query("page"); pageParam != "" {
 		if p, err := strconv.Atoi(pageParam); err == nil && p > 0 {
 			page = p
@@ -39,7 +38,7 @@ func GetAnamolousSIDs(c *gin.Context) {
 			page = 1
 		}
 	}
-	
+
 	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
 		if ps, err := strconv.Atoi(pageSizeParam); err == nil && ps > 0 && ps <= 1000 {
 			pageSize = ps
@@ -60,7 +59,79 @@ func GetAnamolousSIDs(c *gin.Context) {
 		return
 	}
 
+	// ------------------------------------------------------------------
+	// Try ClickHouse first
+	// ------------------------------------------------------------------
+	log.Printf(
+		"[GetAnamolousSIDs] Looking up anomalous packets in ClickHouse (opt_id=%s, page=%d, page_size=%d, category=%q)",
+		optID,
+		page,
+		pageSize,
+		anomalyCategoryFilter,
+	)
+
+	records, totalRecords, err := GetAnomalousSIDsFromClickHouse(
+		optID,
+		anomalyCategoryFilter,
+		page,
+		pageSize,
+	)
+
+	if err != nil {
+		log.Printf(
+			"[GetAnamolousSIDs] ClickHouse lookup failed for opt_id=%s: %v. Falling back to S3.",
+			optID,
+			err,
+		)
+	} else if totalRecords > 0 {
+
+		totalPages := (totalRecords + pageSize - 1) / pageSize
+
+		log.Printf(
+			"[GetAnamolousSIDs] Returning %d/%d anomalous packets from ClickHouse for opt_id=%s",
+			len(records),
+			totalRecords,
+			optID,
+		)
+
+		c.JSON(http.StatusOK, gin.H{
+			"regional_office": user.RegionalOffice,
+			"operator_id":     optID,
+
+			// Keep response structure unchanged.
+			// Frontend can still display this field if needed.
+			"file": "clickhouse",
+
+			"anomaly_category_filter": anomalyCategoryFilter,
+
+			"pagination": gin.H{
+				"page":          page,
+				"page_size":     pageSize,
+				"total_records": totalRecords,
+				"total_pages":   totalPages,
+				"has_next":      page < totalPages,
+				"has_previous":  page > 1,
+			},
+
+			"count":        len(records),
+			"data":         records,
+			"requested_by": user.ADID,
+		})
+
+		return
+	}
+
+	log.Printf(
+		"[GetAnamolousSIDs] No ClickHouse data found for opt_id=%s. Falling back to anomaly_sid.json.",
+		optID,
+	)
+
+	// ------------------------------------------------------------------
+	// Existing S3 fallback starts here
+	// ------------------------------------------------------------------
+
 	dataPath, err := db.GetDataPathByOptID(optID)
+
 	if err != nil {
 		log.Printf("[GetAnamolousSIDs] DataPath lookup failed opt_id=%s user=%s: %v", optID, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
@@ -114,7 +185,6 @@ func GetAnamolousSIDs(c *gin.Context) {
 
 	// Flatten the nested structure to extract all SIDs
 	allData := make([]map[string]interface{}, 0)
-	
 	// Iterate through operator IDs (e.g., "WCD_RJ_UD_NS887326")
 	for operatorID, operatorData := range rawData {
 		if operatorMap, ok := operatorData.(map[string]interface{}); ok {
@@ -126,9 +196,9 @@ func GetAnamolousSIDs(c *gin.Context) {
 						if sidMap, ok := sidData.(map[string]interface{}); ok {
 							// Create a flattened record with SID as key
 							record := map[string]interface{}{
-								"sid":               sid,
-								"operator_id":       operatorID,
-								"anomaly_category":  category,
+								"sid":              sid,
+								"operator_id":      operatorID,
+								"anomaly_category": category,
 							}
 							// Add all SID data fields
 							for key, value := range sidMap {
@@ -157,23 +227,22 @@ func GetAnamolousSIDs(c *gin.Context) {
 	}
 
 	// Calculate pagination
-	totalRecords := len(filteredData)
+	totalRecords = len(filteredData)
 	totalPages := (totalRecords + pageSize - 1) / pageSize
-	
+
 	if page > totalPages && totalPages > 0 {
 		page = totalPages
 	}
-	
+
 	startIndex := (page - 1) * pageSize
 	endIndex := startIndex + pageSize
-	
+
 	if startIndex >= totalRecords {
 		startIndex = 0
 		endIndex = 0
 	} else if endIndex > totalRecords {
 		endIndex = totalRecords
 	}
-	
 	paginatedData := []map[string]interface{}{}
 	if startIndex < endIndex {
 		paginatedData = filteredData[startIndex:endIndex]
@@ -182,9 +251,9 @@ func GetAnamolousSIDs(c *gin.Context) {
 	log.Printf("[GetAnamolousSIDs] Returning %d/%d anomalous SIDs for opt_id=%s user=%s (page %d)",
 		len(paginatedData), totalRecords, optID, user.ADID, page)
 	c.JSON(http.StatusOK, gin.H{
-		"regional_office": user.RegionalOffice,
-		"operator_id":     optID,
-		"file":            fileName,
+		"regional_office":         user.RegionalOffice,
+		"operator_id":             optID,
+		"file":                    fileName,
 		"anomaly_category_filter": anomalyCategoryFilter,
 		"pagination": gin.H{
 			"page":          page,
