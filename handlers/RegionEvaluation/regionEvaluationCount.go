@@ -50,7 +50,11 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	}
 
 	// ------------------------------------------------------------------
-	// ClickHouse (RO + State only)
+	// ClickHouse — opt_distribution shaped per drill level, matching what
+	// GeographicAnalysisTab.jsx expects: state-list (no opt_state) or
+	// district-list (opt_state given, no opt_district). A specific district
+	// (both given) isn't requested by that UI, so it keeps the old
+	// single-row lookup.
 	// ------------------------------------------------------------------
 
 	log.Printf(
@@ -60,11 +64,24 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		optDistrict,
 	)
 
-	data, found, err := GetRegionEvaluationFromClickHouse(
-		strings.ToUpper(regionalOffice),
-		optState,
-		optDistrict,
+	roUpper := strings.ToUpper(regionalOffice)
+
+	var (
+		distribution map[string]interface{}
+		found        bool
+		err          error
 	)
+
+	switch {
+	case optState == "":
+		distribution, found, err = GetRegionStateDistributionFromClickHouse(roUpper)
+	case optDistrict == "":
+		distribution, found, err = GetRegionDistrictDistributionFromClickHouse(roUpper, optState)
+	default:
+		var data map[string]interface{}
+		data, found, err = GetRegionEvaluationFromClickHouse(roUpper, optState, optDistrict)
+		distribution = data
+	}
 
 	if err != nil {
 
@@ -81,12 +98,20 @@ func GetRegionEvaluationCount(c *gin.Context) {
 			optState,
 		)
 
+		responseData := map[string]interface{}{
+			"opt_distribution": distribution,
+		}
+		if optState != "" && optDistrict != "" {
+			// Specific-district case still returns the flat single-row shape.
+			responseData = distribution
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"regional_office": regionalOffice,
 			"opt_state":       optState,
 			"opt_district":    optDistrict,
 			"file":            "Clickhouse",
-			"data":            data,
+			"data":            responseData,
 			"requested_by":    user.ADID,
 		})
 
@@ -95,7 +120,7 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	} else {
 
 		log.Printf(
-			"[GetRegionEvaluationCount] District request detected. Skipping ClickHouse and using S3.",
+			"[GetRegionEvaluationCount] No ClickHouse metrics found. Falling back to S3.",
 		)
 	}
 
