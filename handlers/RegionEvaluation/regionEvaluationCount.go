@@ -10,11 +10,15 @@ import (
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
 	"opt360-portal-backend/utils"
+	"opt360-portal-backend/cache"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
+
+var regionCache = cache.NewFileCache(cache.CacheConfig{})
+
 
 func GetRegionEvaluationCount(c *gin.Context) {
 	// Get user from context
@@ -92,11 +96,9 @@ func GetRegionEvaluationCount(c *gin.Context) {
 
 	} else if found {
 
-		log.Printf(
-			"[GetRegionEvaluationCount] Returning ClickHouse response (ro=%s state=%s)",
-			regionalOffice,
-			optState,
-		)
+		if cacheErr := regionCache.Set("region_evaluation", cacheKey, data); cacheErr != nil {
+            log.Printf("[GetRegionEvaluationCount] Cache write failed: %v", cacheErr)
+        }
 
 		responseData := map[string]interface{}{
 			"opt_distribution": distribution,

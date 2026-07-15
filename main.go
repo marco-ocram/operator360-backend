@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// Initialize database connection (operator360).
-	//
+	
 	// Hardcoded per explicit instruction rather than sourced from
 	// cfg.Databases.Opt360: the opt_master table lives on a different host
 	// than what config was resolving, so its connection is pinned directly

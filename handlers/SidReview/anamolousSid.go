@@ -30,7 +30,6 @@ func GetAnamolousSIDs(c *gin.Context) {
 	// Get pagination parameters
 	page := 1
 	pageSize := 20
-
 	if pageParam := c.Query("page"); pageParam != "" {
 		if p, err := strconv.Atoi(pageParam); err == nil && p > 0 {
 			page = p
@@ -38,7 +37,6 @@ func GetAnamolousSIDs(c *gin.Context) {
 			page = 1
 		}
 	}
-
 	if pageSizeParam := c.Query("page_size"); pageSizeParam != "" {
 		if ps, err := strconv.Atoi(pageSizeParam); err == nil && ps > 0 && ps <= 1000 {
 			pageSize = ps
