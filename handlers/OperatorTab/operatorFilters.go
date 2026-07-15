@@ -39,14 +39,14 @@ func GetOperatorFilters(c *gin.Context) {
 		return
 	}
 	ro := strings.TrimSpace(req.RO)
+	regCode := strings.TrimSpace(req.RegCode)
 
 	var registrars, eas []models.NameCode
 	var riskBuckets []string
 
+	// Registrars are scoped only by RO (a registrar isn't scoped to itself).
 	if ro == "" {
 		registrars = db.GetCachedRegistrars()
-		eas = db.GetCachedEAs()
-		riskBuckets = db.GetRiskBuckets()
 	} else {
 		database, err := db.GetDB()
 		if err != nil {
@@ -64,11 +64,42 @@ func GetOperatorFilters(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch registrars", "details": err.Error()})
 			return
 		}
+	}
 
-		eas, err = fetchNameCodePairs(database, "ea", "ea_code", ro)
+	// EAs are scoped by RO and/or registrar (either alone narrows the list;
+	// both together intersect) — independent of each other, so a global
+	// (no-RO) search can still narrow EAs by registrar and vice versa.
+	if ro == "" && regCode == "" {
+		eas = db.GetCachedEAs()
+	} else {
+		database, err := db.GetDB()
+		if err != nil {
+			log.Printf("[GetOperatorFilters] DB connection error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Database connection unavailable",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		eas, err = fetchEAsScoped(database, ro, regCode)
 		if err != nil {
 			log.Printf("[GetOperatorFilters] ea query error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch EAs", "details": err.Error()})
+			return
+		}
+	}
+
+	if ro == "" {
+		riskBuckets = db.GetRiskBuckets()
+	} else {
+		database, err := db.GetDB()
+		if err != nil {
+			log.Printf("[GetOperatorFilters] DB connection error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Database connection unavailable",
+				"details": err.Error(),
+			})
 			return
 		}
 
@@ -80,7 +111,7 @@ func GetOperatorFilters(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[GetOperatorFilters] ro=%q → %d registrars, %d eas, %d risk buckets", ro, len(registrars), len(eas), len(riskBuckets))
+	log.Printf("[GetOperatorFilters] ro=%q reg_code=%q → %d registrars, %d eas, %d risk buckets", ro, regCode, len(registrars), len(eas), len(riskBuckets))
 
 	c.JSON(http.StatusOK, models.OperatorFiltersResponse{
 		RegionalOffices: regionalOffices,
@@ -102,6 +133,39 @@ func fetchNameCodePairs(database *db.LoggedDB, nameCol, codeCol, ro string) ([]m
 		args = append(args, ro)
 	}
 	query += " ORDER BY " + nameCol
+
+	rows, err := database.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	pairs := make([]models.NameCode, 0)
+	for rows.Next() {
+		var nc models.NameCode
+		if err := rows.Scan(&nc.Name, &nc.Code); err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, nc)
+	}
+	return pairs, rows.Err()
+}
+
+// fetchEAsScoped returns distinct (ea, ea_code) pairs from opt_master,
+// optionally scoped to ro and/or regCode — either filter alone narrows the
+// list; both together intersect.
+func fetchEAsScoped(database *db.LoggedDB, ro, regCode string) ([]models.NameCode, error) {
+	query := "SELECT DISTINCT ea, ea_code FROM operator360.opt_master WHERE ea IS NOT NULL AND ea_code IS NOT NULL"
+	args := []interface{}{}
+	if ro != "" {
+		query += " AND ro = ?"
+		args = append(args, ro)
+	}
+	if regCode != "" {
+		query += " AND reg_code = ?"
+		args = append(args, regCode)
+	}
+	query += " ORDER BY ea"
 
 	rows, err := database.Query(query, args...)
 	if err != nil {

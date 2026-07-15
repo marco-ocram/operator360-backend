@@ -97,6 +97,51 @@ type ServerConfig struct {
 	Port int    `json:"port"`
 }
 
+// KafkaConfig holds the feedback-evidence event producer's connection
+// details. Brokers is deliberately left blank-able and unvalidated at
+// startup — unlike S3/DB, Kafka isn't wired up in every environment yet, so
+// an unset Brokers means "producer disabled" (events are logged and
+// dropped) rather than a hard failure. See handlers/Feedback's producer.
+type KafkaConfig struct {
+	// Brokers is a comma-separated list of host:port bootstrap addresses.
+	Brokers string `json:"brokers"`
+	Topic   string `json:"topic"`
+	// SASL, only used when both are set; TLS is inferred from SASLMechanism
+	// being non-empty (plaintext SASL over an unencrypted connection is not
+	// supported here on purpose).
+	SASLUsername  string `json:"sasl_username"`
+	SASLPassword  string `json:"sasl_password"`
+	SASLMechanism string `json:"sasl_mechanism"` // "plain" | "scram-sha-256" | "scram-sha-512"
+}
+
+// FeedbackConfig controls where feedback submissions (the JSON record and
+// any evidence files) are written in S3. BucketName falls back to the
+// default S3 bucket (see S3Config) when unset — only set it if feedback
+// evidence should live in a different bucket than everything else.
+type FeedbackConfig struct {
+	BucketName string `json:"bucket_name"`
+	// Prefix is prepended to every feedback key, before the per-submission
+	// path (<opt_id>/<ad_id>/<date>/<event_id>/). Leave blank for no prefix.
+	Prefix string `json:"prefix"`
+}
+
+// BrokerList splits Brokers on commas, trimming whitespace, and drops empty
+// entries.
+func (k KafkaConfig) BrokerList() []string {
+	var brokers []string
+	for _, b := range strings.Split(k.Brokers, ",") {
+		if b = strings.TrimSpace(b); b != "" {
+			brokers = append(brokers, b)
+		}
+	}
+	return brokers
+}
+
+// Enabled reports whether enough config is present to attempt a connection.
+func (k KafkaConfig) Enabled() bool {
+	return len(k.BrokerList()) > 0 && k.Topic != ""
+}
+
 // TableRef identifies one table's location: the schema/database it lives in
 // and its table name, both supplied independently via config since staging
 // and prod can each use different values for either. Deliberately not
@@ -141,6 +186,8 @@ type Config struct {
 	SIDStore   SIDStoreConfig   `json:"sid_store"`
 	ClickHouse ClickHouseConfig `json:"clickhouse"`
 	Trino      TrinoConfig      `json:"trino"`
+	Kafka      KafkaConfig      `json:"kafka"`
+	Feedback   FeedbackConfig   `json:"feedback"`
 }
 
 var (
@@ -286,6 +333,15 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.Trino.Catalog = envString("OPT360_TRINO_CATALOG", cfg.Trino.Catalog)
 	cfg.Trino.Schema = envString("OPT360_TRINO_SCHEMA", cfg.Trino.Schema)
 	cfg.Trino.Username = envString("OPT360_TRINO_USERNAME", cfg.Trino.Username)
+
+	cfg.Kafka.Brokers = envString("OPT360_KAFKA_BROKERS", cfg.Kafka.Brokers)
+	cfg.Kafka.Topic = envString("OPT360_KAFKA_TOPIC", cfg.Kafka.Topic)
+	cfg.Kafka.SASLUsername = envString("OPT360_KAFKA_SASL_USERNAME", cfg.Kafka.SASLUsername)
+	cfg.Kafka.SASLPassword = envString("OPT360_KAFKA_SASL_PASSWORD", cfg.Kafka.SASLPassword)
+	cfg.Kafka.SASLMechanism = envString("OPT360_KAFKA_SASL_MECHANISM", cfg.Kafka.SASLMechanism)
+
+	cfg.Feedback.BucketName = envString("OPT360_FEEDBACK_BUCKET_NAME", cfg.Feedback.BucketName)
+	cfg.Feedback.Prefix = envString("OPT360_FEEDBACK_PREFIX", cfg.Feedback.Prefix)
 }
 
 // applyTableRefEnvOverrides applies <prefix>_DATABASE and <prefix>_TABLE for
@@ -357,6 +413,37 @@ func GetDefaultS3Config() S3Config {
 	}
 
 	return cfg.S3
+}
+
+// GetDefaultKafkaConfig returns the Kafka configuration from the loaded
+// config. Brokers/Topic may be empty — callers must check Enabled() before
+// attempting to produce.
+func GetDefaultKafkaConfig() KafkaConfig {
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		return KafkaConfig{}
+	}
+
+	return cfg.Kafka
+}
+
+// GetDefaultFeedbackConfig returns the feedback storage configuration from
+// the loaded config. BucketName is resolved to the default S3 bucket when
+// unset in config — callers can use the returned value directly without
+// re-checking for emptiness.
+func GetDefaultFeedbackConfig() FeedbackConfig {
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Println("Error loading config:", err)
+		return FeedbackConfig{}
+	}
+
+	fb := cfg.Feedback
+	if fb.BucketName == "" {
+		fb.BucketName = cfg.S3.BucketName
+	}
+	return fb
 }
 
 // GetTablesConfig returns the table configuration from the loaded config.
