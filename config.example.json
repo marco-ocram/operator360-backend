@@ -55,5 +55,18 @@
         "catalog": "",
         "schema": "",
         "username": ""
+    },
+    "_comment_kafka": "Optional -- leave brokers/topic blank to disable the feedback-evidence event producer entirely (it silently no-ops, see kafka/producer.go). sasl_mechanism is one of plain | scram-sha-256 | scram-sha-512, or blank for no auth/TLS.",
+    "kafka": {
+        "brokers": "",
+        "topic": "",
+        "sasl_username": "",
+        "sasl_password": "",
+        "sasl_mechanism": ""
+    },
+    "_comment_feedback": "Optional -- bucket_name falls back to s3.bucket_name when blank. Every feedback submission (JSON record + any evidence files) is written under <prefix>/<opt_id>/<ad_id>/<date>/<event_id>/, where event_id is also published as the Kafka event's event_id.",
+    "feedback": {
+        "bucket_name": "",
+        "prefix": ""
     }
 }

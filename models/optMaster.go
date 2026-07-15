@@ -133,9 +133,12 @@ type NameCode struct {
 
 // OperatorFiltersRequest is the POST body for /api/operator_filters.
 // RO is optional; when set, the registrar/ea/risk_bucket lists are scoped to
-// that RO instead of being global.
+// that RO instead of being global. RegCode is also optional and independently
+// scopes the EA list to that registrar's EAs (regardless of whether RO is
+// set), so a global (no-RO) search can still narrow EAs by registrar.
 type OperatorFiltersRequest struct {
-	RO string `json:"ro"`
+	RO      string `json:"ro"`
+	RegCode string `json:"reg_code"`
 }
 
 // OperatorFiltersResponse is the response for /api/operator_filters — everything
