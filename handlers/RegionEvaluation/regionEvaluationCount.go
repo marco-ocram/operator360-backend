@@ -6,35 +6,40 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
 	"opt360-portal-backend/utils"
+	"opt360-portal-backend/cache"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/gin-gonic/gin"
 )
 
+var regionCache = cache.NewFileCache(cache.CacheConfig{})
+
+
 func GetRegionEvaluationCount(c *gin.Context) {
 
 	// ------------------------------------------------------------------
 	// Get authenticated user
 	// ------------------------------------------------------------------
-	userInterface, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-		return
-	}
-
-	user := userInterface.(*models.User)
-
-	// user := &models.User{
-	// 	ADID:           "TESTUSER001",
-	// 	RegionalOffice: "Lucknow",
+	// userInterface, exists := c.Get("user")
+	// if !exists {
+	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+	// 	return
 	// }
 
-	// c.Set("user", user)
+	// user := userInterface.(*models.User)
+
+	user := &models.User{
+		ADID:           "TESTUSER001",
+		RegionalOffice: "Lucknow",
+	}
+
+	c.Set("user", user)
     
 
 	// ------------------------------------------------------------------
@@ -94,6 +99,24 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	// ClickHouse (RO + State only)
 	// ------------------------------------------------------------------
 
+	cacheKey := cache.GenerateKey(regionalOffice, optState, optDistrict)
+
+	var cachedData interface{}
+    if found, err := regionCache.Get("region_evaluation", cacheKey, 24*time.Hour, &cachedData); err != nil {
+        log.Printf("[GetRegionEvaluationCount] Cache read failed: %v", err)
+    } else if found {
+        log.Printf("[GetRegionEvaluationCount] Cache HIT ro=%s state=%s district=%s", regionalOffice, optState, optDistrict)
+        
+        c.JSON(http.StatusOK, gin.H{
+            "regional_office": regionalOffice,
+            "opt_state":       optState,
+            "opt_district":    optDistrict,
+            "file":            "Clickhouse (cached)",
+            "data":            cachedData,
+            "requested_by":    user.ADID,
+        })
+        return
+    }
 
 	log.Printf(
 		"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s district=%s)",
@@ -119,22 +142,19 @@ func GetRegionEvaluationCount(c *gin.Context) {
 
 	} else if found {
 
-		log.Printf(
-			"[GetRegionEvaluationCount] Returning ClickHouse response (ro=%s state=%s)",
-			regionalOffice,
-			optState,
-		)
+		if cacheErr := regionCache.Set("region_evaluation", cacheKey, data); cacheErr != nil {
+            log.Printf("[GetRegionEvaluationCount] Cache write failed: %v", cacheErr)
+        }
 
-		c.JSON(http.StatusOK, gin.H{
-			"regional_office": regionalOffice,
-			"opt_state":       optState,
-			"opt_district":    optDistrict,
-			"file":            "Clickhouse",
-			"data":            data,
-			"requested_by":    user.ADID,
-		})
-
-		return
+        c.JSON(http.StatusOK, gin.H{
+            "regional_office": regionalOffice,
+            "opt_state":       optState,
+            "opt_district":    optDistrict,
+            "file":            "Clickhouse",
+            "data":            data,
+            "requested_by":    user.ADID,
+        })
+        return
 
 		
 

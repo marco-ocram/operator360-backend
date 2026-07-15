@@ -80,40 +80,40 @@ func main() {
 	// here instead of going through config.json/OPT360_DB_OPT360_*. This
 	// means rotating these credentials requires a code change + rebuild,
 	// unlike every other connection in this app.
-	if err := db.InitDB(db.DBConfig{
-		Host:     "10.10.108.224",
-		Port:     3306,
-		User:     "Data_platform_W",
-		Password: "Dataplat_7634",
-		Database: "operator360",
-	}); err != nil {
-		log.Fatal("Failed to initialize database: ", err)
-	}
-	defer db.Close()
+	// if err := db.InitDB(db.DBConfig{
+	// 	Host:     "10.10.108.224",
+	// 	Port:     3306,
+	// 	User:     "Data_platform_W",
+	// 	Password: "Dataplat_7634",
+	// 	Database: "operator360",
+	// }); err != nil {
+	// 	log.Fatal("Failed to initialize database: ", err)
+	// }
+	// defer db.Close()
 
-	fmt.Println("Database connection established")
+	// fmt.Println("Database connection established")
 
-	// Cache the distinct risk_bucket values opt_master actually has, once, so
-	// handlers enumerate buckets dynamically instead of hardcoding a fixed
-	// High/Medium/Low list — see db/riskBuckets.go.
-	db.InitRiskBucketCache()
+	// // Cache the distinct risk_bucket values opt_master actually has, once, so
+	// // handlers enumerate buckets dynamically instead of hardcoding a fixed
+	// // High/Medium/Low list — see db/riskBuckets.go.
+	// db.InitRiskBucketCache()
 
-	// Initialize UID database connection
-	if err := db.InitUIDDB(toDBConfig(cfg.Databases.UID)); err != nil {
-		log.Fatal("Failed to initialize UID database: ", err)
-	}
+	// // Initialize UID database connection
+	// if err := db.InitUIDDB(toDBConfig(cfg.Databases.UID)); err != nil {
+	// 	log.Fatal("Failed to initialize UID database: ", err)
+	// }
 
-	fmt.Println("UID Database connection established")
+	// fmt.Println("UID Database connection established")
 
-	// Initialize portal database connection (strot_services — user auth)
-	if err := db.InitPortalDB(toDBConfig(cfg.Databases.Portal)); err != nil {
-		log.Fatal("Failed to initialize portal database: ", err)
-	}
+	// // Initialize portal database connection (strot_services — user auth)
+	// if err := db.InitPortalDB(toDBConfig(cfg.Databases.Portal)); err != nil {
+	// 	log.Fatal("Failed to initialize portal database: ", err)
+	// }
 
-	fmt.Println("Portal Database connection established")
+	// fmt.Println("Portal Database connection established")
 
-	// Non-fatal connectivity check for SID Store
-	checkSIDStoreConnectivity(cfg.SIDStore.BaseURL, cfg.SIDStore.TimeoutSeconds)
+	// // Non-fatal connectivity check for SID Store
+	// checkSIDStoreConnectivity(cfg.SIDStore.BaseURL, cfg.SIDStore.TimeoutSeconds)
 
 	// Non-fatal ClickHouse connection (logs result; server starts regardless)
 	db.InitClickHouseDB(db.ClickHouseConfig{
