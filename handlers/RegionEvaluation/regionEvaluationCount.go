@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
@@ -22,29 +21,16 @@ var regionCache = cache.NewFileCache(cache.CacheConfig{})
 
 
 func GetRegionEvaluationCount(c *gin.Context) {
-
-	// ------------------------------------------------------------------
-	// Get authenticated user
-	// ------------------------------------------------------------------
-	// userInterface, exists := c.Get("user")
-	// if !exists {
-	// 	c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
-	// 	return
-	// }
-
-	// user := userInterface.(*models.User)
-
-	user := &models.User{
-		ADID:           "TESTUSER001",
-		RegionalOffice: "Lucknow",
+	// Get user from context
+	userInterface, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found in context"})
+		return
 	}
 
-	c.Set("user", user)
-    
+	user := userInterface.(*models.User)
 
-	// ------------------------------------------------------------------
-	// Request parameters
-	// ------------------------------------------------------------------
+	// Get required query parameters
 	regionalOffice := c.Query("regional_office")
 	optState := c.Query("opt_state")
 	optDistrict := c.Query("opt_district")
@@ -57,66 +43,23 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		return
 	}
 
-	log.Printf(
-		"[GetRegionEvaluationCount] Request received ro=%s state=%s district=%s user=%s",
-		regionalOffice,
-		optState,
-		optDistrict,
-		user.ADID,
-	)
-
-	// ------------------------------------------------------------------
-	// Build S3 filename (used for fallback and response)
-	// ------------------------------------------------------------------
 	roForPath := utils.ToPascalCase(regionalOffice)
-	s3Cfg := config.GetDefaultS3Config()
-
 	var fileName string
-
 	if optState != "" && optDistrict != "" {
-
-		fileName = "opt360Store/" +
-			roForPath + "/" +
-			utils.ToPascalCase(optState) + "/" +
-			utils.ToPascalCase(optDistrict) +
-			"/audit.json"
-
+		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/" + utils.ToPascalCase(optDistrict) + "/audit.json"
 	} else if optState != "" {
-
-		fileName = "opt360Store/" +
-			roForPath + "/" +
-			utils.ToPascalCase(optState) +
-			"/audit.json"
-
+		fileName = "opt360Store/" + roForPath + "/" + utils.ToPascalCase(optState) + "/audit.json"
 	} else {
-
-		fileName = "opt360Store/" +
-			roForPath +
-			"/audit.json"
+		fileName = "opt360Store/" + roForPath + "/audit.json"
 	}
 
 	// ------------------------------------------------------------------
-	// ClickHouse (RO + State only)
+	// ClickHouse — opt_distribution shaped per drill level, matching what
+	// GeographicAnalysisTab.jsx expects: state-list (no opt_state) or
+	// district-list (opt_state given, no opt_district). A specific district
+	// (both given) isn't requested by that UI, so it keeps the old
+	// single-row lookup.
 	// ------------------------------------------------------------------
-
-	cacheKey := cache.GenerateKey(regionalOffice, optState, optDistrict)
-
-	var cachedData interface{}
-    if found, err := regionCache.Get("region_evaluation", cacheKey, 24*time.Hour, &cachedData); err != nil {
-        log.Printf("[GetRegionEvaluationCount] Cache read failed: %v", err)
-    } else if found {
-        log.Printf("[GetRegionEvaluationCount] Cache HIT ro=%s state=%s district=%s", regionalOffice, optState, optDistrict)
-        
-        c.JSON(http.StatusOK, gin.H{
-            "regional_office": regionalOffice,
-            "opt_state":       optState,
-            "opt_district":    optDistrict,
-            "file":            "Clickhouse (cached)",
-            "data":            cachedData,
-            "requested_by":    user.ADID,
-        })
-        return
-    }
 
 	log.Printf(
 		"[GetRegionEvaluationCount] Trying ClickHouse first (ro=%s state=%s district=%s)",
@@ -125,13 +68,24 @@ func GetRegionEvaluationCount(c *gin.Context) {
 		optDistrict,
 	)
 
-	
+	roUpper := strings.ToUpper(regionalOffice)
 
-	data, found, err := GetRegionEvaluationFromClickHouse(
-		strings.ToUpper(regionalOffice),
-		optState,
-		optDistrict,
+	var (
+		distribution map[string]interface{}
+		found        bool
+		err          error
 	)
+
+	switch {
+	case optState == "":
+		distribution, found, err = GetRegionStateDistributionFromClickHouse(roUpper)
+	case optDistrict == "":
+		distribution, found, err = GetRegionDistrictDistributionFromClickHouse(roUpper, optState)
+	default:
+		var data map[string]interface{}
+		data, found, err = GetRegionEvaluationFromClickHouse(roUpper, optState, optDistrict)
+		distribution = data
+	}
 
 	if err != nil {
 
@@ -146,22 +100,29 @@ func GetRegionEvaluationCount(c *gin.Context) {
             log.Printf("[GetRegionEvaluationCount] Cache write failed: %v", cacheErr)
         }
 
-        c.JSON(http.StatusOK, gin.H{
-            "regional_office": regionalOffice,
-            "opt_state":       optState,
-            "opt_district":    optDistrict,
-            "file":            "Clickhouse",
-            "data":            data,
-            "requested_by":    user.ADID,
-        })
-        return
+		responseData := map[string]interface{}{
+			"opt_distribution": distribution,
+		}
+		if optState != "" && optDistrict != "" {
+			// Specific-district case still returns the flat single-row shape.
+			responseData = distribution
+		}
 
-		
+		c.JSON(http.StatusOK, gin.H{
+			"regional_office": regionalOffice,
+			"opt_state":       optState,
+			"opt_district":    optDistrict,
+			"file":            "Clickhouse",
+			"data":            responseData,
+			"requested_by":    user.ADID,
+		})
+
+		return
 
 	} else {
 
 		log.Printf(
-			"[GetRegionEvaluationCount] District request detected. Skipping ClickHouse and using S3.",
+			"[GetRegionEvaluationCount] No ClickHouse metrics found. Falling back to S3.",
 		)
 	}
 
@@ -169,6 +130,7 @@ func GetRegionEvaluationCount(c *gin.Context) {
 	// Existing S3 fallback
 	// ------------------------------------------------------------------
 
+	s3Cfg := config.GetDefaultS3Config()
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
 		log.Printf(

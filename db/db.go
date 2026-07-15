@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 var (

@@ -19,11 +19,13 @@ var regionalOffices = []string{
 }
 
 // GetOperatorFilters handles POST /api/operator_filters — everything needed to
-// populate the View Operators filter UI, read live from operator360.opt_master
-// (see docs/VIEW_OPERATORS_REDESIGN_PLAN.md; caching was considered and parked).
+// populate the View Operators filter UI.
 //
-// Body: {"ro": "<optional>"} — when set, registrar/EA/risk-bucket lists are
-// scoped to that RO instead of being global across all operators.
+// Body: {"ro": "<optional>"} — when unset (the common case; the frontend
+// never sends it today), registrar/EA/risk-bucket lists come from the
+// startup-loaded, periodically-refreshed caches (db/nameCache.go,
+// db/riskBuckets.go) instead of a live query. When an explicit ro is given,
+// this falls back to a live RO-scoped query, since the caches are global.
 func GetOperatorFilters(c *gin.Context) {
 	_, exists := c.Get("user")
 	if !exists {
@@ -38,35 +40,44 @@ func GetOperatorFilters(c *gin.Context) {
 	}
 	ro := strings.TrimSpace(req.RO)
 
-	database, err := db.GetDB()
-	if err != nil {
-		log.Printf("[GetOperatorFilters] DB connection error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Database connection unavailable",
-			"details": err.Error(),
-		})
-		return
-	}
+	var registrars, eas []models.NameCode
+	var riskBuckets []string
 
-	registrars, err := fetchNameCodePairs(database, "reg", "reg_code", ro)
-	if err != nil {
-		log.Printf("[GetOperatorFilters] registrar query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch registrars", "details": err.Error()})
-		return
-	}
+	if ro == "" {
+		registrars = db.GetCachedRegistrars()
+		eas = db.GetCachedEAs()
+		riskBuckets = db.GetRiskBuckets()
+	} else {
+		database, err := db.GetDB()
+		if err != nil {
+			log.Printf("[GetOperatorFilters] DB connection error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Database connection unavailable",
+				"details": err.Error(),
+			})
+			return
+		}
 
-	eas, err := fetchNameCodePairs(database, "ea", "ea_code", ro)
-	if err != nil {
-		log.Printf("[GetOperatorFilters] ea query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch EAs", "details": err.Error()})
-		return
-	}
+		registrars, err = fetchNameCodePairs(database, "reg", "reg_code", ro)
+		if err != nil {
+			log.Printf("[GetOperatorFilters] registrar query error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch registrars", "details": err.Error()})
+			return
+		}
 
-	riskBuckets, err := fetchDistinctColumn(database, "risk_bucket", ro)
-	if err != nil {
-		log.Printf("[GetOperatorFilters] risk_bucket query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch risk buckets", "details": err.Error()})
-		return
+		eas, err = fetchNameCodePairs(database, "ea", "ea_code", ro)
+		if err != nil {
+			log.Printf("[GetOperatorFilters] ea query error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch EAs", "details": err.Error()})
+			return
+		}
+
+		riskBuckets, err = fetchDistinctColumn(database, "risk_bucket", ro)
+		if err != nil {
+			log.Printf("[GetOperatorFilters] risk_bucket query error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch risk buckets", "details": err.Error()})
+			return
+		}
 	}
 
 	log.Printf("[GetOperatorFilters] ro=%q → %d registrars, %d eas, %d risk buckets", ro, len(registrars), len(eas), len(riskBuckets))

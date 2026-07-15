@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
@@ -19,6 +20,23 @@ import (
 // Request structure for selected EAs
 type SelectedEAsRequest struct {
 	SelectedEAs []string `json:"selected_eas" binding:"required"`
+	RO          string   `json:"ro"`
+}
+
+// resolveROOrRespond resolves the RO to use for an S3-file-per-RO lookup
+// (audit.json/kpi.json-style endpoints, which have no global/aggregate
+// file). If the resolved RO is empty (a TechCentre/HeadQuarters user with no
+// override), it writes a 400 and returns ok=false so the caller can bail out
+// immediately instead of building a bogus opt360Store//... path.
+func resolveROOrRespond(c *gin.Context, explicitRO string, user *models.User) (ro string, ok bool) {
+	ro = models.ResolveRO(explicitRO, user)
+	if ro == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Select a Regional Office — there is no global/aggregate file for this data.",
+		})
+		return "", false
+	}
+	return ro, true
 }
 
 // EA distribution structure
@@ -52,9 +70,13 @@ func GetSelectedEAs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "selected_eas array cannot be empty"})
 		return
 	}
+	ro, ok := resolveROOrRespond(c, strings.TrimSpace(req.RO), user)
+	if !ok {
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(ro) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -70,7 +92,7 @@ func GetSelectedEAs(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetSelectedEAs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"error": "Audit file not found", "regional_office": ro,
 			"file_path": fileName, "details": err.Error(),
 		})
 		return
@@ -109,9 +131,13 @@ func GetAllEAs(c *gin.Context) {
 		return
 	}
 	user := userInterface.(*models.User)
+	ro, ok := resolveROOrRespond(c, strings.TrimSpace(c.Query("ro")), user)
+	if !ok {
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(ro) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -127,7 +153,7 @@ func GetAllEAs(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetAllEAs] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"error": "Audit file not found", "regional_office": ro,
 			"file_path": fileName, "details": err.Error(),
 		})
 		return

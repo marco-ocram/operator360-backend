@@ -26,16 +26,6 @@ func GetAnamolousSIDs(c *gin.Context) {
 	}
 
 	user := userInterface.(*models.User)
-	// user := &models.User{
-	// 	ADID:           "TESTUSER001",
-	// 	RegionalOffice: "Lucknow",
-	// }
-
-	// c.Set("user", user)
-    
-    log.Printf("[GetAnamolousSIDs] Using static test user: ADID=%s, RegionalOffice=%s", user.ADID, user.RegionalOffice)
-    
-
 
 	// Get pagination parameters
 	page := 1

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
@@ -19,6 +20,7 @@ import (
 // Request structure for selected Registrars
 type SelectedRegistrarsRequest struct {
 	SelectedRegistrars []string `json:"selected_registrars" binding:"required"`
+	RO                 string   `json:"ro"`
 }
 
 // Registrar distribution structure
@@ -52,9 +54,13 @@ func GetSelectedRegistrars(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "selected_registrars array cannot be empty"})
 		return
 	}
+	ro, ok := resolveROOrRespond(c, strings.TrimSpace(req.RO), user)
+	if !ok {
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(ro) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -70,7 +76,7 @@ func GetSelectedRegistrars(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetSelectedRegistrars] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"error": "Audit file not found", "regional_office": ro,
 			"file_path": fileName, "details": err.Error(),
 		})
 		return
@@ -109,9 +115,13 @@ func GetAllRegistrars(c *gin.Context) {
 		return
 	}
 	user := userInterface.(*models.User)
+	ro, ok := resolveROOrRespond(c, strings.TrimSpace(c.Query("ro")), user)
+	if !ok {
+		return
+	}
 
 	s3Cfg := config.GetDefaultS3Config()
-	fileName := "opt360Store/" + utils.ToPascalCase(user.RegionalOffice) + "/audit.json"
+	fileName := "opt360Store/" + utils.ToPascalCase(ro) + "/audit.json"
 
 	s3Client, err := config.NewS3Client(s3Cfg)
 	if err != nil {
@@ -127,7 +137,7 @@ func GetAllRegistrars(c *gin.Context) {
 	if err != nil {
 		log.Printf("[GetAllRegistrars] S3 fetch failed key=%s user=%s: %v", fileName, user.ADID, err)
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Audit file not found", "regional_office": user.RegionalOffice,
+			"error": "Audit file not found", "regional_office": ro,
 			"file_path": fileName, "details": err.Error(),
 		})
 		return

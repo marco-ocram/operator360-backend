@@ -3,6 +3,7 @@ package LandingPage
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"opt360-portal-backend/db"
 	"opt360-portal-backend/models"
@@ -11,7 +12,9 @@ import (
 )
 
 // GetEARegistrar handles GET /api/get_ea_registrar.
-// Returns EAs grouped by registrar for the logged-in user's regional office.
+// Returns EAs grouped by registrar for the resolved RO (optional ?ro=
+// override; defaults to the caller's own RO, or global — all ROs — for
+// TechCentre/HeadQuarters, see models.ResolveRO).
 func GetEARegistrar(c *gin.Context) {
 
 	// ── 1. Auth guard ──────────────────────────────────────────────────────────
@@ -21,6 +24,7 @@ func GetEARegistrar(c *gin.Context) {
 		return
 	}
 	user := userInterface.(*models.User)
+	ro := models.ResolveRO(strings.TrimSpace(c.Query("ro")), user)
 
 	// ── 2. DB connection ───────────────────────────────────────────────────────
 	database, err := db.GetDB()
@@ -33,14 +37,15 @@ func GetEARegistrar(c *gin.Context) {
 		return
 	}
 
-	// ── 3. Query distinct reg/ea pairs for the user's RO ──────────────────────
-	query := `
-		SELECT DISTINCT reg, ea
-		FROM operator360.opt_master
-		WHERE ro = ?
-		ORDER BY reg, ea
-	`
-	rows, err := database.Query(query, user.RegionalOffice)
+	// ── 3. Query distinct reg/ea pairs for the resolved RO ────────────────────
+	query := "SELECT DISTINCT reg, ea FROM operator360.opt_master"
+	var queryArgs []interface{}
+	if ro != "" {
+		query += " WHERE ro = ?"
+		queryArgs = append(queryArgs, ro)
+	}
+	query += " ORDER BY reg, ea"
+	rows, err := database.Query(query, queryArgs...)
 	if err != nil {
 		log.Printf("[GetEARegistrar] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -77,12 +82,12 @@ func GetEARegistrar(c *gin.Context) {
 	}
 
 	// ── 5. Respond ─────────────────────────────────────────────────────────────
-	log.Printf("[GetEARegistrar] Returning %d reg/ea pairs across %d registrars for ro=%s",
-		totalPairs, len(data), user.RegionalOffice)
+	log.Printf("[GetEARegistrar] Returning %d reg/ea pairs across %d registrars for ro=%q",
+		totalPairs, len(data), ro)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":            data,
 		"total":           totalPairs,
-		"regional_office": user.RegionalOffice,
+		"regional_office": ro,
 	})
 }
