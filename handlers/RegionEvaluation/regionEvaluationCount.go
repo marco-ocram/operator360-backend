@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
+	"opt360-portal-backend/cache"
 	"opt360-portal-backend/config"
 	"opt360-portal-backend/models"
 	"opt360-portal-backend/utils"
-	"opt360-portal-backend/cache"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -18,7 +18,6 @@ import (
 )
 
 var regionCache = cache.NewFileCache(cache.CacheConfig{})
-
 
 func GetRegionEvaluationCount(c *gin.Context) {
 	// Get user from context
@@ -96,9 +95,10 @@ func GetRegionEvaluationCount(c *gin.Context) {
 
 	} else if found {
 
-		if cacheErr := regionCache.Set("region_evaluation", cacheKey, data); cacheErr != nil {
-            log.Printf("[GetRegionEvaluationCount] Cache write failed: %v", cacheErr)
-        }
+		cacheKey := cache.GenerateKey(regionalOffice, optState, optDistrict)
+		if cacheErr := regionCache.Set("region_evaluation", cacheKey, distribution); cacheErr != nil {
+			log.Printf("[GetRegionEvaluationCount] Cache write failed: %v", cacheErr)
+		}
 
 		responseData := map[string]interface{}{
 			"opt_distribution": distribution,
