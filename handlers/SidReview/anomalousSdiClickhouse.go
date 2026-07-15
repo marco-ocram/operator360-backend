@@ -58,7 +58,7 @@ func GetAnomalousSIDsFromClickHouse(
 
 	countSQL := fmt.Sprintf(`
 		SELECT count()
-		FROM operator360.anomalous_packets_rmt
+		FROM operator360.anomalous_packets_v2_rmt
 		%s
 	`, whereClause)
 
@@ -96,7 +96,7 @@ func GetAnomalousSIDsFromClickHouse(
 			pkt_source,
 			feature_group,
 			comments
-		FROM operator360.anomalous_packets_rmt
+		FROM operator360.anomalous_packets_v2_rmt
 		%s
 		ORDER BY created_date DESC
 		LIMIT ? OFFSET ?
